@@ -1,0 +1,135 @@
+# Publish a Framework Website to IIS OnPremise creating the IIS application pool and website if it doesn't exist
+# https://www.devopspertise.com/2020/07/12/azure-devops-iis-deployment-using-environments/#what-are-environments
+
+parameters:
+  - name: artifactName
+    type: string
+  # 'Development-IIS-OnPremise', 'Production-IIS-OnPremise'
+  # IisAdoEnvironmentName in the variable group
+  # the environment has the agent that is running on the IIS server
+  - name: environment
+    type: string
+  - name: iisAppPoolName
+    type: string
+  - name: iisWebSiteName
+    type: string
+  # ex: '%SystemDrive%\inetpub\wwwroot\$(websiteName)'
+  - name: iisTargetFolder
+    type: string
+  - name: iisIpAddress
+    type: string
+  - name: iisPort
+    type: string
+  # IisCertThumbnail in the variable group
+  - name: iisCertThumbnail
+    type: string
+  # .Net Framework or .Net
+  - name: dotNetType
+    type: string
+    values:
+      - Net
+      - Framework
+
+jobs:
+  - deployment: Deployment
+    workspace:
+      clean: all
+    environment:
+      name: ${{ parameters.environment }}
+      resourceType: VirtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - download: current
+              artifact: ${{ parameters.artifactName }}
+
+            # see the Readme.me for more details on File configuration Transformations
+            # the ASPNETCORE_ENVIRONMENT=Development is set in the web.config for .Net applications
+            # Assuming you are using IISPublish.yml for Production
+            - task: FileTransform@2
+              condition: ${{ eq(parameters.dotNetType, 'Net') }}
+              displayName: "File Transform: appsettings.json from Variables"
+              inputs:
+                folderPath: "$(Pipeline.Workspace)\\${{ parameters.artifactName }}\\*.zip"
+                jsonTargetFiles: "**/appsettings.Development.json"
+
+            # Replace values from the Pipeline Variables or Variable Group into the web.config
+            # the web.config was transformed from the web.Dev/Prod.config file in the BuildAndTest stage
+            - task: FileTransform@2
+              condition: ${{ eq(parameters.dotNetType, 'Framework') }}
+              displayName: "File Transform: web.config from Variables"
+              inputs:
+                folderPath: "$(Pipeline.Workspace)\\${{ parameters.artifactName }}\\*.zip"
+                xmlTargetFiles: "**/web.config"
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Create App Pool and Website"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "CreateOrUpdateWebsite"
+                ${{ if eq(parameters.dotNetType, 'Framework') }}:
+                  DotNetVersionForWebsite: "v4.0"
+                ${{ else }}:
+                  DotNetVersionForWebsite: "No Managed Code"
+                PipeLineModeForWebsite: "Integrated"
+                AppPoolIdentityForWebsite: "ApplicationPoolIdentity"
+                AppPoolNameForWebsite: ${{parameters.iisAppPoolName}}
+                WebsiteName: ${{parameters.iisWebSiteName}}
+                WebsitePhysicalPath: ${{parameters.iisTargetFolder}}
+                CreateOrUpdateAppPoolForWebsite: true
+                AddBinding: true
+                ${{ if ne(parameters.iisCertThumbnail, '') }}:
+                  Bindings: |
+                    {
+                        bindings:[
+                            {
+                                "protocol":"http",
+                                "ipAddress":"${{parameters.iisIpAddress}}",
+                                "hostname":"",
+                                "port": "${{parameters.iisPort}}",
+                                "sslThumbprint":"",
+                                "sniFlag":false
+                            },
+                            {
+                                "protocol":"https",
+                                "ipAddress":"${{parameters.iisIpAddress}}",
+                                "hostname":"",
+                                "port": "443",
+                                "sslThumbprint":"${{parameters.iisCertThumbnail}}",
+                                "sniFlag":false
+                            }
+                        ]
+                    }
+                ${{ if eq(parameters.iisCertThumbnail, '') }}:
+                  # no cert to use
+                  Bindings: |
+                    {
+                        bindings:[
+                            {
+                                "protocol":"http",
+                                "ipAddress":"${{parameters.iisIpAddress}}",
+                                "hostname":"",
+                                "port": "${{parameters.iisPort}}",
+                                "sslThumbprint":"",
+                                "sniFlag":false
+                            }
+                        ]
+                    }
+
+            - task: IISWebAppDeploymentOnMachineGroup@0
+              displayName: "Deploy IIS client code"
+              inputs:
+                WebsiteName: ${{ parameters.iisWebSiteName }}
+                Package: $(Pipeline.Workspace)\${{ parameters.artifactName }}\**\*.zip
+                TakeAppOfflineFlag: true
+                RemoveAdditionalFilesFlag: true
+                # exclude appsettings.production.json for the Development environment
+                AdditionalArguments: "-skip:objectName=filePath,absolutePath='appsettings.Production.json'"
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Start IIS"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StartWebsite"
+                StartStopWebsiteName: ${{parameters.iisWebSiteName}}

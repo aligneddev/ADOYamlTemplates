@@ -1,0 +1,108 @@
+# Build .Net Web apps with artifacts for deployment
+# https://learn.microsoft.com/en-us/azure/devops/pipelines/ecosystems/dotnet-core?view=azure-devops&tabs=yaml-editor
+# these can run on ubuntu-latest
+
+parameters:
+  - name: netVersion
+    type: string
+    default: "8.x"
+  - name: buildConfiguration
+    type: string
+    default: "Release"
+  - name: rootFolder
+    type: string
+  - name: artifactName
+    type: string
+  - name: isMain
+    type: string
+    values:
+      - "true"
+      - "false"
+
+jobs:
+  - job: BuildAndTest
+    displayName: "Build and Test"
+    steps:
+      - task: UseDotNet@2
+        displayName: "Install .NET Core SDK"
+        inputs:
+          version: ${{ variables.netVersion }}
+          performMultiLevelLookup: true
+          includePreviewVersions: true
+
+      - task: NuGetAuthenticate@1
+        displayName: "NuGet Authenticate"
+
+      - task: DotNetCoreCLI@2
+        displayName: "Restore"
+        inputs:
+          command: "restore"
+          projects: "${{ parameters.rootFolder }}/**/*.csproj"
+          feedsToUse: "config"
+          # Nuget.config should be at the root of the repo
+          nugetConfigPath: "NuGet.config"
+
+      - task: DotNetCoreCLI@2
+        displayName: "Build With $(buildConfiguration) Configuration"
+        inputs:
+          command: build
+          projects: "${{ parameters.rootFolder }}/**/*.csproj"
+          arguments: "--configuration $(buildConfiguration)"
+
+      # on Linux, use Coverlet
+      - task: DotNetCoreCLI@2
+        displayName: "Test"
+        inputs:
+          command: "test"
+          projects: "${{ parameters.rootFolder }}/**/*Tests.csproj"
+          arguments: '--configuration $(buildConfiguration) --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
+          publishTestResults: true
+
+      - task: PublishCodeCoverageResults@2
+        displayName: "Publish code coverage report"
+        inputs:
+          codeCoverageTool: "Cobertura"
+          summaryFileLocation: "$(Agent.TempDirectory)/**/coverage.cobertura.xml"
+
+      # /p:EnvironmentName=Development or Staging adds and sets the ASPNETCORE_ENVIRONMENT to the web.config
+      - task: DotNetCoreCLI@2
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        displayName: "Publish Development"
+        inputs:
+          command: publish
+          projects: |
+            ${{ parameters.rootFolder }}/**/*.csproj
+            !${{ parameters.rootFolder }}**/*Tests.csproj
+          publishWebProjects: false
+          publishTestResults: false
+          arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
+          zipAfterPublish: true
+          modifyOutputPath: true
+
+      - task: DotNetCoreCLI@2
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        displayName: "Publish Production"
+        inputs:
+          command: publish
+          projects: |
+            ${{ parameters.rootFolder }}/**/*.csproj
+            !${{ parameters.rootFolder }}**/*Tests.csproj
+          publishWebProjects: false
+          publishTestResults: false
+          arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
+          zipAfterPublish: true
+          modifyOutputPath: true
+
+      - task: PublishBuildArtifacts@1
+        displayName: "DEV - Publish Build Artifacts"
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        inputs:
+          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Dev"
+          artifactName: "${{ parameters.artifactName }}_Dev"
+
+      - task: PublishBuildArtifacts@1
+        displayName: "PROD - Publish Build Artifacts"
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        inputs:
+          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Prod"
+          artifactName: "${{ parameters.artifactName }}_Prod"

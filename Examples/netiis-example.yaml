@@ -1,0 +1,74 @@
+trigger:
+  - main
+
+pr:
+  - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  name: "NetWebExample"
+  rootFolder: "Examples/"
+  ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+    isMain: "true"
+  ${{ else }}:
+    isMain: "false"
+  buildPlatform: "Any CPU"
+  buildConfiguration: "Release"
+  artifactName: "NetWebExample"
+
+resources:
+  repositories:
+    - repository: AdoCommonTools
+      name: Software/AdoCommonTools
+      type: git
+      ref: main
+
+stages:
+  - stage: BuildAndTest
+    jobs:
+      - template: Pipelines/netBuildAndTest.yml@AdoCommonTools
+        parameters:
+          buildConfiguration: ${{ variables.buildConfiguration }}
+          rootFolder: ${{ variables.rootFolder }}
+          artifactName: ${{ variables.name }}
+          netVersion: "8.x"
+          isMain: ${{ variables.isMain }}
+
+  - stage: PublishDevelopment
+    condition: and(succeeded(), eq(variables.isMain, true))
+    dependsOn: BuildAndTest
+    variables:
+      - group: Development-OnPremise
+    jobs:
+      # will create the app pool or website in IIS
+      - template: Pipelines/IISPublishWithCreate.yml@AdoCommonTools
+        parameters:
+          artifactName: "${{ variables.artifactName }}_Dev"
+          # I couldn't use the variable group here, so I hard coded the environment name
+          environment: "Development-IIS-OnPremise"
+          iisAppPoolName: "${{ variables.name }}_AppPool"
+          iisWebSiteName: ${{ variables.name }}
+          iisTargetFolder: 'E:\Applications\${{ variables.name }}'
+          dotNetType: "Net"
+          # set in variables for the pipeline in ADO
+          iisIpAddress: $(ipAddressDev)
+          iisPort: $(ipPortDev)
+          # there may be different cert thumbnails for each site, don't put directly here, but use a secret variable in the group
+          # could be $(IisCertThumbnail-ProductXYZ)
+          iisCertThumbnail: ""
+
+  # - stage: PublishProduction
+  #   condition: and(succeeded(), eq(variables.isMain, true))
+  #   variables:
+  #   - group: Production-OnPremise
+  #   jobs:
+  #     - template: Pipelines/IISPublish.yml@AdoCommonTools
+  #       parameters:
+  #         artifactName: '${{ variables.artifactName }}_Prod'
+  #         environment: 'Production-IIS-OnPremise'
+  #         iisAppPoolName: '${{ variables.name }}_Prod_AppPool'
+  #         iisWebSiteName: '${{ variables.name }}_Prod'
+  #         iisTargetFolder: 'E:\Applications\${{ variables.name }}'
+  #         dotNetType: 'Net'

@@ -1,0 +1,83 @@
+# Build a .Net Framework Solution for an Exe
+# If it's the main branch publish for release
+
+## Usage
+### ```yml
+### resources:
+###   repositories:
+###   - repository: AdoCommonTools
+###     name: Software/AdoCommonTools
+###     type: git
+###     ref: main
+###
+### stages:
+###   - stage: BuildAndTest
+###     jobs:
+###     - template: Pipelines/Framework/frameworkBuildAndTest.yml@AdoCommonTools
+###       parameters:
+###         buildConfiguration: ${{ variables.buildConfiguration }}
+###         solution: ${{ variables.solution }}
+###         artifactName: ${{ variables.name }}
+###         projectFolder: ${{ variables.projectFolder }}
+### ```
+
+parameters:
+  - name: buildConfiguration
+    type: string
+    default: "Release"
+  - name: solution
+    type: string
+  - name: projectFolder
+    type: string
+  - name: artifactName
+    type: string
+  - name: buildPlatform
+    type: string
+    default: "Any CPU"
+  - name: isMain
+    type: string
+    values:
+      - "true"
+      - "false"
+
+jobs:
+  - job: BuildAndTest
+    displayName: "Build and Test"
+    steps:
+      - task: NuGetToolInstaller@1
+        displayName: "Nuget Install"
+
+      - task: NuGetCommand@2
+        displayName: "Nuget Restore"
+        inputs:
+          restoreSolution: ${{ parameters.solution }}
+
+      - task: VSBuild@1
+        displayName: "Build Solution (.NET Framework)"
+        inputs:
+          solution: ${{ parameters.solution }}
+          platform: ${{ parameters.buildPlatform }}
+          configuration: ${{ parameters.buildConfiguration }}
+
+      - task: VSTest@3
+        displayName: "Run Tests"
+        inputs:
+          platform: ${{ parameters.buildPlatform }}
+          configuration: ${{ parameters.buildConfiguration }}
+          codeCoverageEnabled: True
+
+      - task: ArchiveFiles@2
+        displayName: "Zip Build Artifacts"
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        inputs:
+          rootFolderOrFile: "${{ parameters.projectFolder }}/bin/${{ parameters.buildConfiguration }}"
+          includeRootFolder: false
+          archiveType: "zip"
+          archiveFile: "$(Build.ArtifactStagingDirectory)/${{ parameters.artifactName }}.zip"
+
+      - task: PublishBuildArtifacts@1
+        displayName: "Publish Build Artifacts"
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        inputs:
+          PathtoPublish: "$(Build.ArtifactStagingDirectory)/${{ parameters.artifactName }}.zip"
+          artifactName: ${{ parameters.artifactName }}

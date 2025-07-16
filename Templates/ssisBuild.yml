@@ -1,0 +1,58 @@
+# Build the SSIS package and create artifacts that can be deployed
+# Create a ispac for the 'Development', 'Test' and 'Production' which are the same as the Visual Studio Build Configuration drop down options
+# https://learn.microsoft.com/en-us/sql/integration-services/devops/ssis-devops-overview
+
+
+parameters:
+  - name: dtproj
+    type: string
+  - name: artifactName
+    type: string
+  - name: sourceFolder
+    type: string
+  - name: isMain
+    type: string
+    values:
+      - "true"
+      - "false"
+
+jobs:
+  - job: BuildAndCreateArtifacts
+    displayName: "Build and Create .ispac Artifact"
+    steps:
+      - task: SSISBuild@1
+        displayName: "Build SSIS Package - Development"
+        inputs:
+          projectPath: ${{ parameters.dtproj }}
+          outputPath: "$(Build.ArtifactStagingDirectory)/Development"
+          configuration: "Development"
+          stripSensitive: true
+      - task: SSISBuild@1
+        displayName: "Build SSIS Package - Test"
+        inputs:
+          projectPath: ${{ parameters.dtproj }}
+          outputPath: "$(Build.ArtifactStagingDirectory)/Test"
+          configuration: "Test"
+          stripSensitive: true
+          # if Test isn't defined, continue on
+          continueOnError: true
+      - task: SSISBuild@1
+        displayName: "Build SSIS Package - Production"
+        inputs:
+          projectPath: ${{ parameters.dtproj }}
+          outputPath: "$(Build.ArtifactStagingDirectory)/Production"
+          configuration: "Production"
+          stripSensitive: true
+
+      - task: PublishBuildArtifacts@1
+        displayName: "Publish The .ispac Build Artifacts"
+        inputs:
+          PathtoPublish: $(Build.ArtifactStagingDirectory)
+          ArtifactName: ${{ parameters.artifactName }}
+
+      # properties will need to be set manually in SSMS > package > configure
+      # - task: PublishBuildArtifacts@1
+      #   displayName: "Publish SSISSSISCatalog configuraiton Build Artifacts"
+      #   inputs:
+      #     PathtoPublish: '${{ parameters.sourceFolder }}/ssisConfiguration.json'
+      #     ArtifactName: '${{ parameters.artifactName }}_config'

@@ -1,0 +1,100 @@
+# Deploy/Publish the SSIS Package to the Database Server
+# Dev and Production Environments that are setup in the ADO UI under Pipelines > Environments
+# https://learn.microsoft.com/en-us/sql/integration-services/devops/ssis-devops-overview
+
+## Usage
+## Build an .ispac for each environment, then use those artifacts here
+
+parameters:
+  # should match the <name>.ispac
+  - name: artifactName
+    type: string
+  # 'Development', 'Test', 'Production'
+  - name: environmentName
+    type: string
+  - name: databaseAdoEnvironmentName
+    type: string
+  # the name of the agent under the ADO environment
+  - name: databaseAdoResourceName
+    type: string
+  - name: databaseServer
+    type: string
+  # Example: '/SSISDB/MyFolder/MyProject'
+  - name: destinationPath
+    type: string
+
+jobs:
+  - deployment: "Deploy_${{ parameters.environmentName }}"
+    displayName: "Deploy ${{ parameters.environmentName }}"
+    environment:
+      name: ${{ parameters.databaseAdoEnvironmentName }}
+      resourceName: ${{ parameters.databaseAdoResourceName }}
+      resourceType: VirtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: none
+            # TODO: create json configuration files, publish them from the ssisBuild and use them here
+            # for now: properties will need to be set manually in SSMS > package > configure on creation and if they change
+            # https://learn.microsoft.com/en-us/sql/integration-services/devops/ssis-devops-overview?view=sql-server-ver16#ssis-catalog-configuration-task
+            # - task: SSISCatalog@0
+            #   inputs:
+            #     # 'filePath', 'inline', 'none'
+            #     configSource: 'filePath'
+            #     # configPath: '${{ parameters.artifactName }}/${{ parameters.artifactName }}_config/Project.params'
+            #     # targetServer is where the SSISDB catalog is hosted and usually the same as destinationServer
+            #     targetServer: ${{ parameters.databaseServer }}
+            #     connectionStringSuffix: ''
+            #     # 'win' or 'sql'
+            #     authType: 'win'
+            #     rollBackOnError: true
+
+            # This will not create a new Package on the database in SSISDB
+            # It will only update the existing ones
+            # - task: SSISDeploy@1
+            #   displayName: "Deploy SSIS Package"
+            #   inputs:
+            #     # Example: your build stage artifact from ssisBuild.yml
+            #     # The auto download artifacts puts it in
+            #     sourcePath: '$(Pipeline.Workspace)/${{ parameters.artifactName }}/${{ parameters.environmentName }}/${{ parameters.artifactName }}.ispac'
+            #     # Example: 'SSISDB' or 'File System'
+            #     destinationType: 'SSISDB'
+            #     destinationServer: ${{ parameters.databaseServer }}
+            #     destinationPath: ${{ parameters.destinationPath }}
+            #     authType: 'win'
+            #     whetherOverwrite: true
+            #     whetherContinue: false
+
+            # This will create or update the package.
+            # If creating you still need to add the parameter overrides in SSMS > Project > Configure
+            - task: PowerShell@2
+              displayName: "Deploy SSIS Package"
+              inputs:
+                targetType: "inline"
+                script: |
+                  # it needs to be on the VM with SSISDeploy.exe in the environment variable path
+                  # Path to the SSISDeploy.exe
+                  $ssisDeployPath = SSISDeploy.exe
+
+                  # Source path to the ISPAC file
+                  $sourcePath = "$(Pipeline.Workspace)/${{ parameters.artifactName }}/${{ parameters.environmentName }}/${{ parameters.artifactName }}.ispac"
+
+                  # Destination type: CATALOG or FILE
+                  $destinationType = "catalog"
+
+                  # Destination server (for CATALOG)
+                  $destinationServer = "${{ parameters.databaseServer }}"
+
+                  # Destination path in SSISDB (for CATALOG)
+                  $destinationPath = "${{ parameters.destinationPath }}"
+
+                  # Authentication type (WIN, SQL, ADPWD, ADINT)
+                  $authType = "win"
+
+                  # Project password (if required)
+                  $projectPassword = ""
+
+                  # Execute SSISDeploy.exe
+                  # SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ExampleA;AHDC790DBd01" -at:win
+                  & SSISDeploy.exe -s:$sourcePath -d:"$destinationType;$destinationPath;$destinationServer;" -at:$authType

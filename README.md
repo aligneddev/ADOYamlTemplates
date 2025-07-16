@@ -4,6 +4,8 @@
 
 These templates can be reused in other repositories by including them in the pipeline and passing in variable values.
 
+These are for OnPremise environments, the Azure pipeline YAML can be found in Microsoft documentation.
+
 I'm using the resources to show how the templates can be in a different repo than the pipelines and source code.
 
 ```yaml
@@ -21,10 +23,9 @@ jobs:
 
 https://elanderson.net/2020/04/azure-devops-pipelines-use-yaml-across-repos/ was the initial inspiration
 
-
 ## Examples
 
-The Examples folder has some example of using these templates.
+The Examples folder has an example of using these templates.
 
 ### Structure
 
@@ -38,11 +39,11 @@ The standard is to have:
 - azure-pipelines.yml
 - .editorconfig for C# projects
 - src/
-- scripts/ (if applicable)
+- scripts/ (if applicable/needed)
 
 ## Settings and Secrets
 
-Some organizations aren't using Azure and KeyVault yet. They may be encrypting the web.config/appsetting.json files on the server. The approach below was from working with such an organization.
+Some organizations aren't using Azure and KeyVault yet 😨. They may be encrypting the web.config/appsetting.json files on the server. The approach below was from working with such an organization.
 
 Note: **The better way to secure secrets would be to use Azure Key Vault.** The application code would establish a connection via Entra Id and certificates. See the [Microsoft Learn documentation for more details](https://learn.microsoft.com/en-us/dynamics365/business-central/dev-itpro/administration/setup-app-key-vault-onprem).
 
@@ -50,6 +51,8 @@ Note: **The better way to secure secrets would be to use Azure Key Vault.** The 
 - Variables are better, encrypted environment variables on the server better and Azure Key Vault would be even better
 - use Variable Groups for common secrets, Variables on the pipeline for project specific
 - Replace Tokens in the publish step to avoid secrets being stored in the artifacts for the build
+
+## Configuration Transformation
 
 https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/file-transform-v2?view=azure-pipelines&viewFallbackFrom=azure-devops
 
@@ -80,7 +83,7 @@ Used for .Net Framework, these templates assume that there is a web.config, web.
 
 Used for .Net, these templates assume there is an appsettings.json, appsettings.Development.json and appsettings.Production.json.
 
-The "/p:EnvironmentName={Develpment/Release}" is set in the build phase, setting this in the web.config, by adding it in the IISPublish yml Deployment stage and exeSqlAgentPublish step.
+The "/p:EnvironmentName={Develpment/Release}" is set in the build phase with a FileTransform step, setting this in the web.config, by adding it in the IISPublish yml Deployment stage and exeSqlAgentPublish step.
 ```xml
 <aspNetCore processPath="dotnet" 
             arguments=".\MyApp.dll" 
@@ -104,7 +107,9 @@ Framework uses App.config, .Net uses appsettings.json
 
 the FileTransform@2 task says "This task is intended for web packages and requires a web package file. It does not work on standalone JSON files."
 
-### SQL Server Agent
+### Running from a SQL Server Agent
+
+This isn't very common, but you can use SQL Server Agents to run an exe on a schedule.
 
 ASPNETCORE_ENVIRONMENT must be set in the Sql Server Agent Step
 example {networkpath}\NetConsoleApp.exe ASPNETCORE_ENVIRONMENT=Development

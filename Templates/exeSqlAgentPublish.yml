@@ -1,0 +1,94 @@
+# Publish an exe that is ran by a SQL Server Agent
+# Use this with the Development/Production-Database-OnPremise environments with the agent running on the SQL server
+
+parameters:
+  - name: artifactName
+    type: string
+  # ExeServerAdoEnvironmentName in the variable group
+  # the environment has the agent that is running on the IIS server
+  - name: environment
+    type: string
+  - name: networkFolder
+    type: string
+  - name: backupBeforeCopy
+    type: boolean
+    default: false
+  - name: dotNetType
+    type: string
+    values:
+      - Net
+      - Framework
+
+jobs:
+  # we normally stop the SQL Server Agent
+  # it seems possible with dbatools.io, but PowerShell access needs to be setup
+  # to enable running the step
+  # https://www.kevinrchant.com/2021/04/26/store-dbatools-powershell-module-as-a-package-in-azure-devops/
+  # install it as a universal pacakge, then use it for create if not exists, start, stop and even update is possible
+  # without the stop, the deploy needs to happen when the process is not running
+  # job: StopSqlServerAgent
+  - deployment: Deployment
+    workspace:
+      clean: all
+    environment:
+      name: ${{ parameters.environment }}
+      resourceType: VirtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - download: none
+              artifact: ${{ parameters.artifactName }}
+            - task: DownloadPipelineArtifact@2
+              inputs:
+                artifactName: ${{ parameters.artifactName }}
+                targetPath: $(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}
+
+            # see the Readme.me for more details on File configuration Transformations
+            # ASPNETCORE_ENVIRONMENT must be set in the Sql Server Agent Step
+            # example {networkpath}\NetConsoleApp.exe ASPNETCORE_ENVIRONMENT=Development
+            - task: FileTransform@2
+              condition: ${{ eq(parameters.dotNetType, 'Net') }}
+              displayName: "File Transform: appsettings.json from Variables"
+              inputs:
+                folderPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
+                jsonTargetFiles: "**/appsettings.*.json"
+
+            - task: FileTransform@2
+              condition: ${{ eq(parameters.dotNetType, 'Framework') }}
+              displayName: "File Transform: web.config from Variables"
+              inputs:
+                folderPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
+                xmlTargetFiles: "**/web.config"
+
+            - task: ArchiveFiles@2
+              displayName: "Backup Files"
+              condition: ${{ eq(parameters.backupBeforeCopy, true) }}
+              inputs:
+                rootFolderOrFile: ${{ parameters.networkFolder }}
+                archiveType: "zip"
+                archiveFile: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}/backup_$(Build.BuildId).zip'
+
+            - task: PublishPipelineArtifact@1
+              condition: ${{ eq(parameters.backupBeforeCopy, true) }}
+              displayName: "Publish Backup Artifacts"
+              inputs:
+                targetPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}/backup_$(Build.BuildId).zip'
+                artifactName: "${{ parameters.artifactName }}_backup"
+
+            # artifact is zipped
+            - task: ExtractFiles@1
+              displayName: "Unzip Files"
+              inputs:
+                archiveFilePatterns: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
+                destinationFolder: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\unzipped'
+                cleanDestinationFolder: true
+                overwriteExistingFiles: true
+
+            - task: CopyFiles@2
+              inputs:
+                SourceFolder: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\unzipped'
+                Contents: "**"
+                TargetFolder: ${{ parameters.networkFolder }}
+                CleanTargetFolder: true
+  # TODO job: StartSqlServerAgent with dbatools.io

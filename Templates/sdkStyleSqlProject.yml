@@ -1,0 +1,97 @@
+# https://learn.microsoft.com/en-us/sql/tools/sql-database-projects/tutorials/create-deploy-sql-project?view=sql-server-ver17&pivots=sq1-visual-studio-sdk
+
+trigger:
+  - main
+
+pr:
+  - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  artifactName: "SqlSdkExample"
+  # ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+  isMain: "true"
+  # ${{ else }}:
+  #   isMain: "false"
+  sqlProj: "$(Build.SourcesDirectory)/Pipelines/SQL/SDK/SqlSdkExample/SqlSdkExample.sqlproj"
+  sqlPackageVersion: "170.0.94"
+  sqlPublishPac: "$(Build.ArtifactStagingDirectory)/${{ variables.artifactName }}/${{ variables.artifactName }}.dacpac"
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Build
+        displayName: "Build"
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: "sdk"
+              version: "8.x"
+          - task: NuGetAuthenticate@1
+            displayName: "NuGet Authenticate"
+          - script: dotnet build ${{ variables.sqlProj }} -o $(Build.ArtifactStagingDirectory)
+            displayName: Build
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish Build Artifacts"
+            condition: and(succeeded(), ${{ eq(variables.isMain, 'true') }})
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)"
+              artifactName: "${{ variables.artifactName }}"
+
+  - stage: PublishDev
+    condition: and(succeeded(), ${{ eq(variables.isMain, 'true') }})
+    dependsOn: Build
+    variables:
+      - group: Development-OnPremise
+    jobs:
+      - deployment: Deployment
+        workspace:
+          clean: all
+        environment:
+          name: "Development-Database-OnPremise"
+          resourceType: VirtualMachine
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: ${{ variables.artifactName }}
+                - checkout: none
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    artifactName: ${{ variables.artifactName }}
+                    targetPath: $(Build.ArtifactStagingDirectory)/${{ variables.artifactName }}
+
+                - script: dotnet tool install --global Microsoft.SqlPackage --version ${{ variables.sqlPackageVersion }}
+                  displayName: "Install specific version of SqlPackage"
+
+                - script: |
+                    mkdir "$(Build.ArtifactStagingDirectory)/reports/"
+                  displayName: "Create artifacts reports folder"
+
+                # The SqlPackage DeployReport action creates an XML report of the changes that would be made by a publish action.
+                - script: sqlpackage /Action:DeployReport /SourceFile:"${{ variables.sqlPublishPac }}" /TargetConnectionString:"Server=$(DatabaseServer);Initial Catalog=Example" /OutputPath:"$(Build.ArtifactStagingDirectory)\reports\deployReport.xml"
+                  displayName: "Generate Deploy Report"
+
+                # The SqlPackage DriftReport action creates an XML report of the Schema changes that have been made to the registered database since it was last registered.
+                # this step didn't pass in the build, or output a file in a local CLI??
+                # - script: sqlpackage /Action:DriftReport /TargetConnectionString:"Server=$(DatabaseServer);Initial Catalog=Example" /OutputPath:"$(Build.ArtifactStagingDirectory)\reports\driftReport.xml"
+                #   displayName: 'Generate Drift Report'
+
+                # The SqlPackage DriftReport action creates an XML report of the changes that have been made to the registered database since it was last registered.
+                - script: sqlpackage /Action:Script /SourceFile:"${{ variables.sqlPublishPac }}" /TargetConnectionString:"Server=$(DatabaseServer);Initial Catalog=Example" /OutputPath:"$(Build.ArtifactStagingDirectory)\reports\driftReport.xml"
+                  displayName: "Generate Script"
+
+                # $(DatabaseServer) is from the Variable Group
+                - script: sqlpackage /Action:Publish /SourceFile:"${{ variables.sqlPublishPac }}" /TargetConnectionString:"Server=$(DatabaseServer);Initial Catalog=Example"
+                  displayName: "Publish"
+
+                - task: PublishPipelineArtifact@1
+                  inputs:
+                    targetPath: "$(System.DefaultWorkingDirectory)\reports\"
+                    artifact: "Diagnostic Files"
+                    publishLocation: "pipeline"
+# sqlpackage /Action:Publish /SourceFile:bin/Debug/MyDatabaseProject.dacpac /TargetConnectionString:{yourconnectionstring}

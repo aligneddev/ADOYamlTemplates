@@ -1,17 +1,21 @@
-# Flow Chart of the .Net to IIS example
+You can convert this to draw.io, see https://www.drawio.com/blog/mermaid-diagrams
+
 ```mermaid
 flowchart TD
-    A["Start: Pipeline Triggered (main or during PR)"] --> B["BuildAndTest Stage"]
-    B --> C["netBuildAndTest.yml@AdoCommonTools"]
-    C --> D["NuGetToolInstaller@1\nNuget Install"]
-    D --> E["NuGetCommand@2\nNuget Restore"]
-    E --> F["VSBuild@1\nBuild Solution (.NET)"]
-    F --> G["VSTest@3\nRun Tests"]
-    G --> H{Is Main Branch?}
-    H -- Yes --> I["PublishDevelopment Stage"]
-    H -- No --> Z["End"]
-    I --> J["IISPublishWithCreate.yml@AdoCommonTools"]
-    J --> K["Create/Update IIS App Pool & Website"]
-    K --> L["Deploy Dev Artifacts to IIS"]
-    L --> M["End"]
+    Trigger["Pipeline Triggered (main or during PR)"] --> BuildTest["BuildAndTest Stage"]
+    BuildTest --> CommonBuildTest["netBuildAndTest.yml@AdoCommonTools"]
+    CommonBuildTest --> NugetInstall["Nuget Install"]
+    NugetInstall --> NugetRestore["Nuget Restore"]
+    NugetRestore --> DotNetBuild["Build Solution (.NET)"]
+    DotNetBuild --> RunTests["Run Tests"]
+    RunTests --> IsMain{"Is Main Branch?"}
+    IsMain -- No --> End["End"]
+    IsMain -- Yes --> PublishDev["PublishDevelopment Stage"]
+    IsMain -- Yes --> PublishProd["PublishProd Stage"]
+    PublishProd --> Approval["Wait for Approval"]
+    Approval --> IISPublish
+
+    PublishDev --> IISPublish["IISPublishWithCreate.yml@AdoCommonTools"]
+    IISPublish --> ConfigIIS["Create/Update IIS App Pool & Website"]
+    ConfigIIS --> DeployDev["Deploy Artifacts to IIS"]
 ```

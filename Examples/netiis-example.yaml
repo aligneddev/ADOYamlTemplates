@@ -58,6 +58,7 @@ stages:
           # there may be different cert thumbnails for each site, don't put directly here, but use a secret variable in the group
           # could be $(IisCertThumbnail-ProductXYZ)
           iisCertThumbnail: ""
+          siteUrl: "https://aligneddev.net" # your site url here
 
   # - stage: PublishProduction
   #   condition: and(succeeded(), eq(variables.isMain, true))

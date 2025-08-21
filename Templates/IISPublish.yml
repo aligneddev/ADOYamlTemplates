@@ -60,4 +60,42 @@ jobs:
                 WebsiteName: ${{ parameters.iisWebSiteName }}
                 Package: $(Pipeline.Workspace)\${{ parameters.artifactName }}\**\*.zip
                 TakeAppOfflineFlag: true
-                RemoveAdditionalFilesFlag: true
+                RemoveAdditionalFilesFlag: true - task: PowerShell@2
+        
+            # warm up the site
+             - task: PowerShell@2
+              displayName: 'Warm-up Site (Ping and Encrypt)'
+              condition: ${{ ne(parameters.siteUrl, '') }}
+              inputs:
+                targetType: 'inline'
+                script: |
+                  $url = '${{ parameters.siteUrl }}'
+                  Write-Host "Warming up site:  ${{ parameters.siteUrl }}"
+                  try {
+                    $response = Invoke-WebRequest -Uri  ${{ parameters.siteUrl }} -UseBasicParsing -TimeoutSec 30
+                    Write-Host "Warm-up successful. Status: $($response.StatusCode)"
+                  } catch {
+                    Write-Warning "Warm-up request failed: $($_.Exception.Message)"
+                  }
+
+            # these steps may not be needed
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Stop IIS Site"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StopWebsite"
+                StartStopWebsiteName: ${{parameters.iisWebSiteName}}
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Restart App Pool"
+              inputs:
+                IISDeploymentType: 'IISApplicationPool'
+                ActionIISApplicationPool: 'RecycleAppPool'
+                StartStopRecycleAppPoolName: ${{ parameters.iisAppPoolName }}
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Start IIS Start"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StartWebsite"
+                StartStopWebsiteName: ${{parameters.iisWebSiteName}}

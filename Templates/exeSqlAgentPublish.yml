@@ -56,10 +56,10 @@ jobs:
 
             - task: FileTransform@2
               condition: ${{ eq(parameters.dotNetType, 'Framework') }}
-              displayName: "File Transform: web.config from Variables"
+              displayName: "File Transform: app.config from Variables"
               inputs:
                 folderPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
-                xmlTargetFiles: "**/web.config"
+                xmlTargetFiles: "**/app.config"
 
             - task: ArchiveFiles@2
               displayName: "Backup Files"

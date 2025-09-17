@@ -17,8 +17,9 @@
 ###       parameters:
 ###         buildConfiguration: ${{ variables.buildConfiguration }}
 ###         solution: ${{ variables.solution }}
-###         artifactName: ${{ variables.name }}
 ###         projectFolder: ${{ variables.projectFolder }}
+###         artifactName: ${{ variables.artifactName }}
+###         isMain: ${{ variables.isMain }}
 ### ```
 
 parameters:

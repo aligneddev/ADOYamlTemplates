@@ -1,0 +1,97 @@
+# Apply Sql from a folder using the DbUpRunner
+# use under the jobs - deployment > deploy steps
+# We built DbUp into a DbUpRunner console app and deployed it with ADO universal packages
+
+parameters:
+- name: databaseServer
+  type: string
+- name: databaseName
+  type: string
+- name: databaseUsername
+  type: string
+  default: ""
+- name: databasePassword
+  type: string  
+  default: ""
+# $(Build.SourcesDirectory)\SQL
+# apply all .sql files in this path to the database using DbUpRunner
+# to run embedded scripts, see the DbUpExample you have to have your own Program.cs and can't use this template
+- name: scriptsToUpdatePath
+  type: string
+
+# All this was done manually and placed in c:\azagent\DbUpRunner folder 
+  # there were multiple steps to get this to work on my DC VM
+  # install: az extension add --name azure-devops
+  # # if cert issues similar to Unable to get extension index. Please ensure you have network connection. Error detail: ,ded with url: /azure-cli-extension-index-vl (Caused by SSLError(SSLCertVerificationError(1,
+    # FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:lele) port—z'
+    # this is due to the proxy and certifications
+    # 1. open Edge and browse to aka.ms, open the certificate details
+    # 2. Export each in the chain (DC Root, PAN-Fwd-Proxy_2021, akalinkmanager.trafficmanager.net) to crt files
+    # 3. create dc-chain.pem (c:\certs)
+    # 4. Open each export crt and copy into c:\certs\dc-chain.pem starting at the bottom (DC Root will be at the bottom)
+    # 5. Powershell
+    #  `az config set core.ca_trust_path="c:\certs\dc-chain.pem`
+    # set REQUESTS_CA_BUNDLE with $ENV:REQUESTS_CA_BUNDLE for the current terminal or in Windows Environment Variables > Path to make permenant to c:\certs\dc-chain.pem
+    #  hopefully temporary `$env:AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1`
+    # helpful command: `certutil -verify c:\certs\dc-chain.pem`
+    # I got ERROR: Verifying leaf certificate revocation status returned The revocation function was unable to check revocation because the revocation server was offline. 0x80092013 (-2146885613 CRYPT_E_REVOCATION_OFFLINE) 
+    #  CertUtil: The revocation function was unable to check revocation because the revocation server was offline.
+    # Using $env:AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1 helped, but isn't the best thing to do
+  # `az login --allow-no-subscriptions` (we don't have any subscriptions yet)
+  # now az artifacts, etc should work
+
+  # even  with the above and AZURE_CLI_DISABLE_CONNECTION_VERIFICATION, I still have  Error occurred in request., SSLError: HTTPSConnectionPool(host='vsblob.dev.azure.com', port=443): Max retries exceeded with url: /YourOrg/_apis/clienttools/ArtifactTool/release?osName=Windows&arch=AMD64 (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (_ssl.c:1010)')))
+  # NOTE: --version had to be hard coded in the script
+  # so, run this locally on the VM with the build agent (we are not tied to a hosted agent) and updates need to manually run it again
+      # place in $(Agent.HomeDirectory)\..\DbUpRunner aka c:\azagent\DbUpRunner where it was installed to
+      # create a YourOrg.DbUpRunner.runtimeconfig.json by copying from the build output C:\git\YourOrgCommonTools\DbUp\DbUpRunner\bin\Debug\net8.0
+  # - task: NuGetAuthenticate@1
+  # not sure if `az login --allow-no-subscriptions`` is needed, but you have to run it locally then the authentication is cached
+  # - task: PowerShell@2
+  #   displayName: "Download DbUpRunner"
+  #   inputs:
+  #     targetType: 'inline'
+  #     script: |
+  #             $env:AZURE_CLI_DISABLE_CONNECTION_VERIFICATION=1
+  #             az artifacts universal download --organization "https://dev.azure.com/YourOrg/" --project "9ae917b7-eee2-461c-bae6-4cee7b98c287" --scope project --feed "SoftwarePackages" --name "YourOrg-dbuprunner-exe" --path $(Build.ArtifactStagingDirectory)\DbUpRunner\ --version 0.2.0
+
+steps:
+- script: mkdir "$(Build.ArtifactStagingDirectory)\\DbUpReports"
+  displayName: "Create artifacts reports folder"
+
+- task: PowerShell@2
+  displayName: "Run DbUp - Update from ${{ parameters.scriptsToUpdatePath }} folder"
+  inputs:
+    targetType: "inline"
+    script: |
+
+      if ("${{ parameters.databaseUsername }}" -ne '') {
+        $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};User ID=${{ parameters.databaseUsername }};Password=${{ parameters.databasePassword }};Encrypt=True;TrustServerCertificate=False;"
+      } else {
+        $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};Integrated Security=True;Encrypt=True;TrustServerCertificate=False;"
+      }
+
+      # Mask password for debug output (so logs don't expose secrets)
+      # if ("${{ parameters.databasePassword }}" -ne '') {
+      #   $maskedConn = $conn -replace 'Password=[^;]*', 'Password=****'
+      # } else {
+      #   $maskedConn = $conn
+      # }
+      # Write-Host "DEBUG: Connection string: $maskedConn"
+
+     
+      # build paths in PowerShell to avoid escaping/quoting issues
+      $exe = "$(Agent.HomeDirectory)\..\DbUpRunner\YourOrg.DbUpRunner.exe"
+      $reportPath = Join-Path "$(Build.ArtifactStagingDirectory)" 'DbUpReports'
+      # Write-Host "DEBUG: exe: $exe"
+      # Write-Host "DEBUG: reportPath: $reportPath"
+      # Write-Host "DEBUG: scriptsPath: ${{ parameters.scriptsToUpdatePath }}"
+
+      & $exe --connectionString="$conn" --reportPath="$reportPath" --scriptsPath="${{ parameters.scriptsToUpdatePath }}"
+      
+
+- task: PublishBuildArtifacts@1
+  displayName: "Publish Build Artifacts"
+  inputs:
+    PathtoPublish: "$(Build.ArtifactStagingDirectory)\\DbUpReports"
+    artifactName: "DbUpReports"

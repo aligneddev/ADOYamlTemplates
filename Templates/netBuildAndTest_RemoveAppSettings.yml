@@ -82,6 +82,7 @@ jobs:
           modifyOutputPath: true
 
       - task: PowerShell@2
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})      
         displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Dev"
         inputs:
           targetType: 'inline'
@@ -123,6 +124,7 @@ jobs:
           modifyOutputPath: true
 
       - task: PowerShell@2
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})   
         displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Prod"
         inputs:
           targetType: 'inline'

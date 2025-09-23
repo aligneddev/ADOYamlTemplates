@@ -60,6 +60,15 @@ jobs:
               inputs:
                 folderPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
                 xmlTargetFiles: "**/app.config"
+            
+            # artifact is zipped
+            - task: ExtractFiles@1
+              displayName: "Unzip Files"
+              inputs:
+                archiveFilePatterns: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
+                destinationFolder: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\unzipped'
+                cleanDestinationFolder: true
+                overwriteExistingFiles: true
 
             - task: ArchiveFiles@2
               displayName: "Backup Files"
@@ -76,14 +85,6 @@ jobs:
                 targetPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}/backup_$(Build.BuildId).zip'
                 artifactName: "${{ parameters.artifactName }}_backup"
 
-            # artifact is zipped
-            - task: ExtractFiles@1
-              displayName: "Unzip Files"
-              inputs:
-                archiveFilePatterns: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\*.zip'
-                destinationFolder: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\unzipped'
-                cleanDestinationFolder: true
-                overwriteExistingFiles: true
 
             - task: CopyFiles@2
               inputs:

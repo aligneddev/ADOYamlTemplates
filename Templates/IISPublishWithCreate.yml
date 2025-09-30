@@ -9,6 +9,8 @@ parameters:
   # the environment has the agent that is running on the IIS server
   - name: environment
     type: string
+  - name: environmentResourceName
+    type: string
   - name: iisAppPoolName
     type: string
   - name: iisWebSiteName
@@ -40,6 +42,7 @@ jobs:
       clean: all
     environment:
       name: ${{ parameters.environment }}
+      resourceName: ${{ parameters.environmentResourceName }}
       resourceType: VirtualMachine
     strategy:
       runOnce:

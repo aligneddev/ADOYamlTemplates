@@ -66,9 +66,9 @@ steps:
     script: |
 
       if ("${{ parameters.databaseUsername }}" -ne '') {
-        $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};User ID=${{ parameters.databaseUsername }};Password=${{ parameters.databasePassword }};Encrypt=True;TrustServerCertificate=False;"
+        $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};User ID=${{ parameters.databaseUsername }};Password=${{ parameters.databasePassword }};Encrypt=True;TrustServerCertificate=True;"
       } else {
-        $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};Integrated Security=True;Encrypt=True;TrustServerCertificate=False;"
+        $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};Integrated Security=True;Encrypt=True;TrustServerCertificate=True;"
       }
 
       # Mask password for debug output (so logs don't expose secrets)

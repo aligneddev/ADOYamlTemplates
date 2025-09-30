@@ -96,5 +96,5 @@ jobs:
                   $projectPassword = ""
 
                   # Execute SSISDeploy.exe
-                  # SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ExampleA;AHDC790DBd01" -at:win
+                  # SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ExampleA;YourDBServer" -at:win
                   & SSISDeploy.exe -s:$sourcePath -d:"$destinationType;$destinationPath;$destinationServer;" -at:$authType

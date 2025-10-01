@@ -143,22 +143,6 @@ jobs:
               displayName: 'Warm-up Site (Ping and Encrypt)'
               condition: ${{ ne(parameters.siteUrl, '') }}
             
-            # warm up the site
-             - task: PowerShell@2
-              displayName: 'Warm-up Site (Ping and Encrypt)'
-              condition: ${{ ne(parameters.siteUrl, '') }}
-              inputs:
-                targetType: 'inline'
-                script: |
-                  $url = '${{ parameters.siteUrl }}'
-                  Write-Host "Warming up site:  ${{ parameters.siteUrl }}"
-                  try {
-                    $response = Invoke-WebRequest -Uri  ${{ parameters.siteUrl }} -UseBasicParsing -TimeoutSec 30
-                    Write-Host "Warm-up successful. Status: $($response.StatusCode)"
-                  } catch {
-                    Write-Warning "Warm-up request failed: $($_.Exception.Message)"
-                  }
-
             # these steps may not be needed
             - task: IISWebAppManagementOnMachineGroup@0
               displayName: "Stop IIS Site"
@@ -180,3 +164,20 @@ jobs:
                 IISDeploymentType: "IISWebsite"
                 ActionIISWebsite: "StartWebsite"
                 StartStopWebsiteName: ${{parameters.iisWebSiteName}}
+              
+             # warm up the site
+             - task: PowerShell@2
+              displayName: 'Warm-up Site (Ping and Encrypt)'
+              condition: ${{ ne(parameters.siteUrl, '') }}
+              inputs:
+                targetType: 'inline'
+                script: |
+                  $url = '${{ parameters.siteUrl }}'
+                  Write-Host "Warming up site:  ${{ parameters.siteUrl }}"
+                  try {
+                    $response = Invoke-WebRequest -Uri  ${{ parameters.siteUrl }} -UseBasicParsing -TimeoutSec 30
+                    Write-Host "Warm-up successful. Status: $($response.StatusCode)"
+                  } catch {
+                    Write-Warning "Warm-up request failed: $($_.Exception.Message)"
+                  }
+

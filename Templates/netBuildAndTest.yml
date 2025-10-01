@@ -24,7 +24,7 @@ jobs:
     displayName: "Build and Test"
     steps:
       - task: UseDotNet@2
-        displayName: "Install .NET Core SDK"
+        displayName: "Install .NET SDK"
         inputs:
           version: ${{ variables.netVersion }}
           performMultiLevelLookup: true
@@ -75,9 +75,29 @@ jobs:
             !${{ parameters.rootFolder }}**/*Tests.csproj
           publishWebProjects: false
           publishTestResults: false
+          # if you want a self-contained single file add `-p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true`
           arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
-          zipAfterPublish: true
-          modifyOutputPath: true
+          zipAfterPublish: false
+          # use false, the output is placed directly in the specified output directory.
+          modifyOutputPath: false
+
+      - task: PowerShell@2
+        displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Dev"
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        inputs:
+          targetType: "inline"
+          script: |
+            $src = "$(Build.ArtifactStagingDirectory)/Dev"
+
+            Write-Host "Cleaning unwanted appsettings from $src"
+            $remove = @('appsettings.Production.json','appsettings.Test.json')
+            foreach ($f in $remove) {
+              Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+
+            $zipPath = "$(Build.ArtifactStagingDirectory)/Dev/${{parameters.artifactName}}.zip"
+            Write-Host "Creating zip: $zipPath"
+            Compress-Archive -Path $src\* -DestinationPath $zipPath -Force
 
       - task: DotNetCoreCLI@2
         condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
@@ -90,19 +110,37 @@ jobs:
           publishWebProjects: false
           publishTestResults: false
           arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
-          zipAfterPublish: true
-          modifyOutputPath: true
+          zipAfterPublish: false
+          modifyOutputPath: false
+
+      - task: PowerShell@2
+        displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Prod"
+        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
+        inputs:
+          targetType: "inline"
+          script: |
+            $src = "$(Build.ArtifactStagingDirectory)/Prod"
+
+            Write-Host "Cleaning unwanted appsettings from $src"
+            $remove = @('appsettings.Development.json','appsettings.Test.json')
+            foreach ($f in $remove) {
+              Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+
+            $zipPath = "$(Build.ArtifactStagingDirectory)/Prod/${{parameters.artifactName}}.zip"
+            Write-Host "Creating zip: $zipPath"
+            Compress-Archive -Path $src\* -DestinationPath $zipPath -Force
 
       - task: PublishBuildArtifacts@1
         displayName: "DEV - Publish Build Artifacts"
         condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
         inputs:
-          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Dev"
+          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Dev/${{parameters.artifactName}}.zip"
           artifactName: "${{ parameters.artifactName }}_Dev"
 
       - task: PublishBuildArtifacts@1
         displayName: "PROD - Publish Build Artifacts"
         condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
         inputs:
-          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Prod"
+          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Prod/${{parameters.artifactName}}.zip"
           artifactName: "${{ parameters.artifactName }}_Prod"

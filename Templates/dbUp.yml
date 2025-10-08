@@ -65,9 +65,12 @@ steps:
     targetType: "inline"
     script: |
 
-      if ("${{ parameters.databaseUsername }}" -ne '') {
+      if ("${{ parameters.databaseUsername }}" -ne '') 
+      {
         $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};User ID=${{ parameters.databaseUsername }};Password=${{ parameters.databasePassword }};Encrypt=True;TrustServerCertificate=False;"
-      } else {
+      } 
+      else 
+      {
         $conn = "Data Source=${{ parameters.databaseServer }};Database=${{ parameters.databaseName }};Integrated Security=True;Encrypt=True;TrustServerCertificate=False;"
       }
 
@@ -88,6 +91,14 @@ steps:
       # Write-Host "DEBUG: scriptsPath: ${{ parameters.scriptsToUpdatePath }}"
 
       & $exe --connectionString="$conn" --reportPath="$reportPath" --scriptsPath="${{ parameters.scriptsToUpdatePath }}"
+      
+  - template: onProdDeploySuccess.yml
+    parameters:
+      buildId: $(Build.BuildId)
+      definitionId: $(System.DefinitionId)
+      requestedForId: $(Build.RequestedForId)
+      # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains('Production', ${{ parameters.environment }}))
       
 
 - task: PublishBuildArtifacts@1

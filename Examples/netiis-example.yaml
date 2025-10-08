@@ -60,16 +60,17 @@ stages:
           iisCertThumbnail: ""
           siteUrl: "https://aligneddev.net" # your site url here
 
-  # - stage: PublishProduction
-  #   condition: and(succeeded(), eq(variables.isMain, true))
-  #   variables:
-  #   - group: Production-OnPremise
-  #   jobs:
-  #     - template: Pipelines/IISPublish.yml@AdoCommonTools
-  #       parameters:
-  #         artifactName: '${{ variables.artifactName }}_Prod'
-  #         environment: 'Production-IIS-OnPremise'
-  #         iisAppPoolName: '${{ variables.name }}_Prod_AppPool'
-  #         iisWebSiteName: '${{ variables.name }}_Prod'
-  #         iisTargetFolder: 'E:\Applications\${{ variables.name }}'
-  #         dotNetType: 'Net'
+  - stage: PublishProduction
+    condition: and(succeeded(), eq(variables.isMain, true))
+    variables:
+    - group: Production-OnPremise
+    jobs:
+      - template: Pipelines/IISPublish.yml@AdoCommonTools
+        parameters:
+          artifactName: '${{ variables.artifactName }}_Prod'
+          environment: 'Production-IIS-OnPremise'
+          iisAppPoolName: '${{ variables.name }}_Prod_AppPool'
+          iisWebSiteName: '${{ variables.name }}_Prod'
+          iisTargetFolder: 'E:\Applications\${{ variables.name }}'
+          dotNetType: 'Net'
+

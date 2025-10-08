@@ -40,6 +40,9 @@ jobs:
       runOnce:
         deploy:
           steps:
+            # Enables System.AccessToken for Git tag in onProdDeploySuccess
+            - checkout: none
+              persistCredentials: true 
             - download: none
               artifact: ${{ parameters.artifactName }}
             - task: DownloadPipelineArtifact@2
@@ -88,11 +91,19 @@ jobs:
                 targetPath: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}/backup_$(Build.BuildId).zip'
                 artifactName: "${{ parameters.artifactName }}_backup"
 
-
             - task: CopyFiles@2
               inputs:
                 SourceFolder: '$(Build.ArtifactStagingDirectory)\${{ parameters.artifactName }}\unzipped'
                 Contents: "**"
                 TargetFolder: ${{ parameters.networkFolder }}
                 CleanTargetFolder: true
+
+            - template: onProdDeploySuccess.yml
+              parameters:
+                buildId: $(Build.BuildId)
+                definitionId: $(System.DefinitionId)
+                requestedForId: $(Build.RequestedForId)
+                # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
+                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains('Production', ${{ parameters.environment }}))
+                
   # TODO job: StartSqlServerAgent with dbatools.io

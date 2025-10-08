@@ -28,6 +28,9 @@ flowchart TD
     PublishProd["PublishProd Stage"] --> 
     Approval["Wait for Approval"] --> 
     Publish["Publish to Environment, based on type"]
+    Retain["Retain deployment"] -->
+    TagGitRepo["Tag Commit with ADO API"] -->
+    Validate["Validate PROD"]
 ```
 
 Note: You can convert this to draw.io, see https://www.drawio.com/blog/mermaid-diagrams

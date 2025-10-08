@@ -48,6 +48,9 @@ jobs:
       runOnce:
         deploy:
           steps:
+            # Enables System.AccessToken for Git tag in onProdDeploySuccess
+            - checkout: none
+              persistCredentials: true
             - download: current
               artifact: ${{ parameters.artifactName }}
 

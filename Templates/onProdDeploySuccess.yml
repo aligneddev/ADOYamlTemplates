@@ -1,0 +1,74 @@
+# Execute after a Prod deployment is successful
+# Retain the builds for auditing
+# Tag the repo with the buildId
+parameters:
+  - name: buildId
+    type: string
+  - name: definitionId
+    type: string
+  - name: requestedForId
+    type: string
+  - name: condition
+    default: 'false'
+    type: string
+  - name: retainForDays
+    default: 0
+    type: number
+
+steps:
+  - task: PowerShell@2
+    name: RetainALongTime
+    displayName: Retain Deployment Build Indefinitely
+    inputs:
+      failOnStderr: true
+      targetType: 'inline'
+      # https://learn.microsoft.com/en-us/azure/devops/pipelines/build/run-retention?view=azure-devops&tabs=powershell
+      script: |
+        $contentType = "application/json";
+        $headers = @{ Authorization = 'Bearer $(System.AccessToken)' };
+        # daysValid = 0 is Indefinitely Retain
+        # Mark: "I think we'd need to go at least 2 years since an auditor could come in the current year asking about last year.  Can we go indefinite for starters and set a threshold later?"
+        $rawRequest = @{ daysValid = ${{ parameters.retainForDays }}; definitionId = $(System.DefinitionId); ownerId = 'User:$(Build.RequestedForId)'; protectPipeline = $false; runId = $(Build.BuildId) };
+        $request = ConvertTo-Json @($rawRequest);
+        $uri = "$(System.CollectionUri)$(System.TeamProject)/_apis/build/retention/leases?api-version=6.0-preview.1";
+        $newLease = Invoke-RestMethod -uri $uri -method POST -Headers $headers -ContentType $contentType -Body $request;
+        $newLeaseId = $newLease.Value[0].LeaseId
+        echo "##vso[task.setvariable variable=newLeaseId;isOutput=true]$newLeaseId";
+    condition: eq(${{ parameters.condition }}, true)
+
+  # Requirements
+  #  Enable OAuth Token Access:
+  #   In your pipeline YAML or UI, ensure:
+  #   - checkout: self # none works when under deployment - job:
+  #     persistCredentials: true
+  - task: PowerShell@2
+    displayName: "Tag Git Commit via REST API"
+    condition: and(succeeded(), eq(${{ parameters.condition }}, true))
+    inputs:
+      targetType: "inline"
+      script: |
+        $orgUrl = "$(System.CollectionUri)"
+        $project = "$(System.TeamProject)"
+        $repoId = "$(Build.Repository.ID)"
+        $commitId = "$(Build.SourceVersion)"
+        $tagName = "prod-release-$(Build.BuildId)"
+        $accessToken = "$(System.AccessToken)"
+        $date = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+        $apiVersion = "7.1"
+        $uri = "${orgUrl}${project}/_apis/git/repositories/${repoId}/annotatedtags?api-version=${apiVersion}"
+ 
+        $body = @{
+                name = $tagName
+                taggedObject = @{ objectId = $commitId }
+                message = "Deployed to 'prod' by $(Build.RequestedFor) on $date. BuildId=$(Build.BuildId)"
+              } | ConvertTo-Json -Depth 5
+
+              $headers = @{
+                "Authorization" = "Bearer ${accessToken}"
+                "Content-Type"  = "application/json"
+              }
+
+              Write-Host "Creating annotated tag '$tagName' on commit $commitId..."
+              $response = Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -Body $body
+              Write-Host "Tag created: $($response.name) -> $($response.taggedObject.objectId)"

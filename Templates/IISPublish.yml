@@ -64,6 +64,14 @@ jobs:
                 Package: $(Pipeline.Workspace)\${{ parameters.artifactName }}\**\*.zip
                 TakeAppOfflineFlag: true
                 RemoveAdditionalFilesFlag: true - task: PowerShell@2
+
+            - template: onProdDeploySuccess.yml
+              parameters:
+                buildId: $(Build.BuildId)
+                definitionId: $(System.DefinitionId)
+                requestedForId: $(Build.RequestedForId)
+                # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
+                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains('Production', ${{ parameters.environment }}))
         
             # warm up the site
              - task: PowerShell@2

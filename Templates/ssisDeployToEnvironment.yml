@@ -34,7 +34,11 @@ jobs:
       runOnce:
         deploy:
           steps:
+            # Enables System.AccessToken for Git tag in onProdDeploySuccess
             - checkout: none
+              persistCredentials: true 
+            # Enables System.AccessToken for Git tag in onProdDeploySuccess
+              persistCredentials: true 
             # TODO: create json configuration files, publish them from the ssisBuild and use them here
             # for now: properties will need to be set manually in SSMS > package > configure on creation and if they change
             # https://learn.microsoft.com/en-us/sql/integration-services/devops/ssis-devops-overview?view=sql-server-ver16#ssis-catalog-configuration-task
@@ -96,5 +100,16 @@ jobs:
                   $projectPassword = ""
 
                   # Execute SSISDeploy.exe
-                  # SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ExampleA;AHDC790DBd01" -at:win
+                  # Example (this is not what was run): SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ABCD;AHDC790DBd01" -at:win
+                  echo "Executed script `SSISDeploy.exe -s:$sourcePath -d:"$destinationType;$destinationPath;$destinationServer;" -at:$authType`"
+                  
                   & SSISDeploy.exe -s:$sourcePath -d:"$destinationType;$destinationPath;$destinationServer;" -at:$authType
+
+            - template: onProdDeploySuccess.yml
+              parameters:
+                buildId: $(Build.BuildId)
+                definitionId: $(System.DefinitionId)
+                requestedForId: $(Build.RequestedForId)
+                # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
+                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains('Production', ${{ parameters.environment }}))
+                

@@ -104,7 +104,7 @@ steps:
       definitionId: $(System.DefinitionId)
       requestedForId: $(Build.RequestedForId)
       # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
-      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains(${{ parameters.environment }}, 'Production'))
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ contains(parameters.environment, 'Production') }})
       
 
 - task: PublishBuildArtifacts@1

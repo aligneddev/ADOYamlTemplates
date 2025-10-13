@@ -36,6 +36,32 @@ stages:
           netVersion: "8.x"
           isMain: ${{ variables.isMain }}
 
+  - stage: PublishDevelopmentSQL
+    condition: and(succeeded(), eq(variables.isMain, 'true'))
+    dependsOn: BuildAndTest
+    variables:
+      - group: "Environment-Development"
+    jobs:
+      - deployment: "Deploy_Dev_SQL"
+        displayName: "Deploy Dev SQL"
+        environment:
+          name: "Environment-Development-Database"
+          resourceName: "AHDC832N01"
+          resourceType: VirtualMachine
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+                - download: current
+                  artifact: "${{ variables.artifactName }}_SQL"
+                - template: Pipelines/dbUp.yml@AHPCommonTools
+                  parameters:
+                    databaseServer: $(DatabaseServer)
+                    databaseName: $(DbUpDatabaseName)
+                    scriptsToUpdatePath: "$(Agent.BuildDirectory)\\${{ variables.artifactName }}_SQL"
+                    environment: "Development"
+
   - stage: PublishDevelopment
     condition: and(succeeded(), eq(variables.isMain, true))
     dependsOn: BuildAndTest
@@ -60,6 +86,31 @@ stages:
           iisCertThumbnail: ""
           siteUrl: "https://aligneddev.net" # your site url here
 
+  - stage: PublishProductionSQL
+    condition: and(succeeded(), eq(variables.isMain, 'true'))
+    dependsOn: BuildAndTest
+    variables:
+      - group: "Environment-Production"
+    jobs:
+      - deployment: "Deploy_Dev_SQL"
+        displayName: "Deploy Dev SQL"
+        environment:
+          name: "Environment-Production-Database"
+          resourceName: "AHDC832N01"
+          resourceType: VirtualMachine
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+                - download: current
+                  artifact: "${{ variables.artifactName }}_SQL"
+                - template: Pipelines/dbUp.yml@AHPCommonTools
+                  parameters:
+                    databaseServer: $(DatabaseServer)
+                    databaseName: $(DbUpDatabaseName)
+                    scriptsToUpdatePath: "$(Agent.BuildDirectory)\\${{ variables.artifactName }}_SQL"
+                    environment: "Production"
   - stage: PublishProduction
     condition: and(succeeded(), eq(variables.isMain, true))
     variables:

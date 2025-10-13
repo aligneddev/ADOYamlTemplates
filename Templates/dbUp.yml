@@ -18,6 +18,12 @@ parameters:
 # to run embedded scripts, see the DbUpExample you have to have your own Program.cs and can't use this template
 - name: scriptsToUpdatePath
   type: string
+- name: environment
+  type: string
+  values:
+    - Production
+    - Test
+    - Development
 
 # All this was done manually and placed in c:\azagent\DbUpRunner folder 
   # there were multiple steps to get this to work on my DC VM

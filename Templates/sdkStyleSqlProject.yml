@@ -101,6 +101,6 @@ stages:
                     definitionId: $(System.DefinitionId)
                     requestedForId: $(Build.RequestedForId)
                     # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
-                    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains('Production', ${{ parameters.environment }}))
+                    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), contains(${{ parameters.environment }}, 'Production'))
                     
 # sqlpackage /Action:Publish /SourceFile:bin/Debug/MyDatabaseProject.dacpac /TargetConnectionString:{yourconnectionstring}

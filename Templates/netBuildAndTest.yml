@@ -18,6 +18,13 @@ parameters:
     values:
       - "true"
       - "false"
+  # IIS does not run with single file "Common solutions to this issue: The app couldn't be found. Confirm the app's main DLL is present. Single-file deployments are not supported in IIS."      
+  - name: publishSingleFile
+    type: string
+    default: "true"
+    values:
+      - "true"
+      - "false"
 
 jobs:
   - job: BuildAndTest
@@ -75,8 +82,10 @@ jobs:
             !${{ parameters.rootFolder }}**/*Tests.csproj
           publishWebProjects: false
           publishTestResults: false
-          # if you want a self-contained single file add `-p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true`
-          arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
+          ${{ if eq(parameters.publishSingleFile, 'true') }}:
+            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
+          ${{ else }}:
+            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
           zipAfterPublish: false
           # use false, the output is placed directly in the specified output directory.
           modifyOutputPath: false
@@ -109,7 +118,10 @@ jobs:
             !${{ parameters.rootFolder }}**/*Tests.csproj
           publishWebProjects: false
           publishTestResults: false
-          arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
+          ${{ if eq(parameters.publishSingleFile, 'true') }}:
+            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
+          ${{ else }}:
+            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
           zipAfterPublish: false
           modifyOutputPath: false
 

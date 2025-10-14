@@ -12,7 +12,7 @@ parameters:
     default: 'false'
     type: string
   - name: retainForDays
-    default: 0
+    default: 3650 # 10 years
     type: number
 
 steps:
@@ -23,14 +23,15 @@ steps:
       failOnStderr: true
       targetType: 'inline'
       # https://learn.microsoft.com/en-us/azure/devops/pipelines/build/run-retention?view=azure-devops&tabs=powershell
+      # https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning?view=azure-devops
       script: |
         $contentType = "application/json";
         $headers = @{ Authorization = 'Bearer $(System.AccessToken)' };
-        # daysValid = 0 is Indefinitely Retain
+        # daysValid = 0 did not work for Indefinitely Retain
         # Mark: "I think we'd need to go at least 2 years since an auditor could come in the current year asking about last year.  Can we go indefinite for starters and set a threshold later?"
-        $rawRequest = @{ daysValid = ${{ parameters.retainForDays }}; definitionId = $(System.DefinitionId); ownerId = 'User:$(Build.RequestedForId)'; protectPipeline = $false; runId = $(Build.BuildId) };
+        $rawRequest = @{ daysValid = ${{ parameters.retainForDays }}; definitionId = $(System.DefinitionId); ownerId = 'User:$(Build.RequestedForId)'; protectPipeline = $true; runId = $(Build.BuildId) };
         $request = ConvertTo-Json @($rawRequest);
-        $uri = "$(System.CollectionUri)$(System.TeamProject)/_apis/build/retention/leases?api-version=6.0-preview.1";
+        $uri = "$(System.CollectionUri)$(System.TeamProject)/_apis/build/retention/leases?api-version=6.0";
         $newLease = Invoke-RestMethod -uri $uri -method POST -Headers $headers -ContentType $contentType -Body $request;
         $newLeaseId = $newLease.Value[0].LeaseId
         echo "##vso[task.setvariable variable=newLeaseId;isOutput=true]$newLeaseId";

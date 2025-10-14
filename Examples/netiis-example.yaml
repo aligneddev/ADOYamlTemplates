@@ -61,6 +61,7 @@ stages:
                     databaseName: $(DbUpDatabaseName)
                     scriptsToUpdatePath: "$(Agent.BuildDirectory)\\${{ variables.artifactName }}_SQL"
                     environment: "Development"
+                    publishSingleFile: "false"
 
   - stage: PublishDevelopment
     condition: and(succeeded(), eq(variables.isMain, true))

@@ -26,7 +26,7 @@ parameters:
       - "true"
       - "false"
   # build artifacts for the given environments
-  - name: environments
+  - name: adoEnvironments
     type: string
     default: "Development, Test, Production"
 
@@ -78,7 +78,7 @@ jobs:
     
       # /p:EnvironmentName=Development adds and sets the ASPNETCORE_ENVIRONMENT to the generated web.config that is deployed
       # use Development, Test, Production or add more publish options here
-      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environments, 'Development')) }}:
+      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.adoEnvironments, 'Development')) }}:
         - template: netBuildAndTest_BuildCleanPublish.yaml
           parameters:
             environmentName: 'Development'
@@ -88,7 +88,7 @@ jobs:
             publishSingleFile: ${{ parameters.publishSingleFile }}
             removeAppSettings: 'appsettings.Production.json|appsettings.Test.json'
 
-      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environments, 'Production')) }}:
+      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.adoEnvironments, 'Production')) }}:
         - template: netBuildAndTest_BuildCleanPublish.yaml
           parameters:
             environmentName: 'Production'

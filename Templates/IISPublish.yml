@@ -8,9 +8,9 @@ parameters:
   # 'Development-IIS-OnPremise', 'Production-IIS-OnPremise'
   # IisAdoEnvironmentName in the variable group
   # the environment has the agent that is running on the IIS server
-  - name: environment
+  - name: adoEnvironment
     type: string
-  - name: environmentResourceName
+  - name: adoEnvironmentResourceName
     type: string
   - name: iisAppPoolName
     type: string
@@ -30,8 +30,8 @@ jobs:
     workspace:
       clean: all
     environment:
-      name: ${{ parameters.environment }}
-      resourceName: ${{ parameters.environmentResourceName }}
+      name: ${{ parameters.adoEnvironment }}
+      resourceName: ${{ parameters.adoEnvironmentResourceName }}
       resourceType: VirtualMachine
     strategy:
       runOnce:
@@ -70,8 +70,8 @@ jobs:
                 buildId: $(Build.BuildId)
                 definitionId: $(System.DefinitionId)
                 requestedForId: $(Build.RequestedForId)
-                # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
-                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ contains(parameters.environment, 'Production') }})
+                # ${{ parameters.adoEnvironment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
+                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ contains(parameters.adoEnvironment, 'Production') }})
         
             # these steps may not be needed
             - task: IISWebAppManagementOnMachineGroup@0

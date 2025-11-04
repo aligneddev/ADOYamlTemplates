@@ -1,5 +1,5 @@
 parameters:
-  - name: environmentName
+  - name: adoEnvironmentName
     type: string
     values:
       - "Development"
@@ -24,7 +24,7 @@ parameters:
 
 steps:
   - task: DotNetCoreCLI@2
-    displayName: "Publish ${{ parameters.environmentName }}"
+    displayName: "Publish ${{ parameters.adoEnvironmentName }}"
     condition: succeeded()
     inputs:
       command: publish
@@ -34,19 +34,19 @@ steps:
       publishWebProjects: false
       publishTestResults: false
       ${{ if eq(parameters.publishSingleFile, 'true') }}:
-        arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }} /p:EnvironmentName=${{ parameters.environmentName }} -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
+        arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }} /p:EnvironmentName=${{ parameters.adoEnvironmentName }} -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
       ${{ else }}:
-        arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }} /p:EnvironmentName=${{ parameters.environmentName }}"
+        arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }} /p:EnvironmentName=${{ parameters.adoEnvironmentName }}"
       zipAfterPublish: false
       modifyOutputPath: false
 
   - task: PowerShell@2
-    displayName: "Remove unwanted appsettings and create ${{ parameters.artifactName }} zip for ${{ parameters.environmentName }}"
+    displayName: "Remove unwanted appsettings and create ${{ parameters.artifactName }} zip for ${{ parameters.adoEnvironmentName }}"
     condition: succeeded()
     inputs:
       targetType: 'inline'
       script: |
-        $src = "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}"
+        $src = "$(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }}"
         Write-Host "Cleaning unwanted appsettings from $src"
         $removePattern = '${{ parameters.removeAppSettings }}'
         $remove = @()
@@ -56,13 +56,13 @@ steps:
         foreach ($f in $remove) {
           Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         }
-        $zipPath = "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}/${{ parameters.artifactName }}.zip"
+        $zipPath = "$(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }}/${{ parameters.artifactName }}.zip"
         Write-Host "Creating zip: $zipPath"
         Compress-Archive -Path "$src\*" -DestinationPath $zipPath -Force
 
   - task: PublishBuildArtifacts@1
-    displayName: "${{ parameters.environmentName }} - Publish Build Artifacts"
+    displayName: "${{ parameters.adoEnvironmentName }} - Publish Build Artifacts"
     condition: succeeded()
     inputs:
-      PathtoPublish: "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}/${{ parameters.artifactName }}.zip"
-      artifactName: "${{ parameters.artifactName }}_${{ parameters.environmentName }}"
+      PathtoPublish: "$(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }}/${{ parameters.artifactName }}.zip"
+      artifactName: "${{ parameters.artifactName }}_${{ parameters.adoEnvironmentName }}"

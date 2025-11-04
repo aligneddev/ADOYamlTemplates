@@ -18,7 +18,7 @@ parameters:
 # to run embedded scripts, see the DbUpExample you have to have your own Program.cs and can't use this template
 - name: scriptsToUpdatePath
   type: string
-- name: environment
+- name: adoEnvironment
   type: string
   values:
     - Production
@@ -103,8 +103,8 @@ steps:
       buildId: $(Build.BuildId)
       definitionId: $(System.DefinitionId)
       requestedForId: $(Build.RequestedForId)
-      # ${{ parameters.environment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
-      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ contains(parameters.environment, 'Production') }})
+      # ${{ parameters.adoEnvironment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ contains(parameters.adoEnvironment, 'Production') }})
       
 
 - task: PublishBuildArtifacts@1

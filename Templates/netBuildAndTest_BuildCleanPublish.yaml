@@ -1,0 +1,73 @@
+parameters:
+  - name: environmentName
+    type: string
+    values:
+      - "Development"
+      - "Test"
+      - "Production"
+  - name: artifactName
+    type: string
+  - name: rootFolder
+    type: string
+  - name: buildConfiguration
+    type: string
+  - name: publishSingleFile
+    type: string
+    default: "true"
+    values:
+      - "true"
+      - "false"
+  - name: removeAppSettings
+    type: string
+    default: ""
+  - name: isMain
+    type: string
+    default: "false"
+    values:
+      - "true"
+      - "false"
+
+steps:
+  - task: DotNetCoreCLI@2
+    displayName: "Publish ${{ parameters.environmentName }}"
+    condition: and(succeeded(), eq('${{ parameters.isMain }}', 'true'))
+    inputs:
+      command: publish
+      projects: |
+        ${{ parameters.rootFolder }}/**/*.csproj
+        !${{ parameters.rootFolder }}/**/*Tests.csproj
+      publishWebProjects: false
+      publishTestResults: false
+      ${{ if eq(parameters.publishSingleFile, 'true') }}:
+        arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }} /p:EnvironmentName=${{ parameters.environmentName }} -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
+      ${{ else }}:
+        arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }} /p:EnvironmentName=${{ parameters.environmentName }}"
+      zipAfterPublish: false
+      modifyOutputPath: false
+
+  - task: PowerShell@2
+    displayName: "Remove unwanted appsettings and create ${{ parameters.artifactName }} zip for ${{ parameters.environmentName }}"
+    condition: and(succeeded(), eq('${{ parameters.isMain }}', 'true'))
+    inputs:
+      targetType: 'inline'
+      script: |
+        $src = "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}"
+        Write-Host "Cleaning unwanted appsettings from $src"
+        $removePattern = '${{ parameters.removeAppSettings }}'
+        $remove = @()
+        if (![string]::IsNullOrWhiteSpace($removePattern)) {
+          $remove = $removePattern.Split('|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        }
+        foreach ($f in $remove) {
+          Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        }
+        $zipPath = "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}/${{ parameters.artifactName }}.zip"
+        Write-Host "Creating zip: $zipPath"
+        Compress-Archive -Path "$src\*" -DestinationPath $zipPath -Force
+
+  - task: PublishBuildArtifacts@1
+    displayName: "${{ parameters.environmentName }} - Publish Build Artifacts"
+    condition: and(succeeded(), eq('${{ parameters.isMain }}', 'true'))
+    inputs:
+      PathtoPublish: "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}/${{ parameters.artifactName }}.zip"
+      artifactName: "${{ parameters.artifactName }}_${{ parameters.environmentName }}"

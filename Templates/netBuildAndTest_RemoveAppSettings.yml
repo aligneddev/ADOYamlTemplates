@@ -65,102 +65,26 @@ jobs:
           codeCoverageTool: "Cobertura"
           summaryFileLocation: "$(Agent.TempDirectory)/**/coverage.cobertura.xml"
 
-      # /p:EnvironmentName=Development or Staging adds and sets the ASPNETCORE_ENVIRONMENT to the web.config
-      - task: DotNetCoreCLI@2
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        displayName: "Publish Development"
-        inputs:
-          command: publish
-          projects: |
-            ${{ parameters.rootFolder }}/**/*.csproj
-            !${{ parameters.rootFolder }}**/*Tests.csproj
-          publishWebProjects: false
-          publishTestResults: false
-          # if you want a self-contained single file add `-p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true`
-          arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
-          zipAfterPublish: false
-          modifyOutputPath: true
+    
+      # /p:EnvironmentName=Development adds and sets the ASPNETCORE_ENVIRONMENT to the generated web.config that is deployed
+      # use Development, Test, Production or add more publish options here
+      - template: pipelines/templates/netBuildAndTest_BuildCleanPublish.yaml
+        parameters:
+          environmentName: 'Development'
+          artifactName: ${{ parameters.artifactName }}
+          rootFolder: ${{ parameters.rootFolder }}
+          buildConfiguration: ${{ parameters.buildConfiguration }}
+          publishSingleFile: ${{ parameters.publishSingleFile }}
+          removeAppSettings: 'appsettings.Production.json|appsettings.Test.json'
+          isMain: ${{ parameters.isMain }}
 
-      - task: PowerShell@2
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})      
-        displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Dev"
-        inputs:
-          targetType: 'inline'
-          script: |
-            $src = "$(Build.ArtifactStagingDirectory)/Dev"
-            $flat = "$(Build.ArtifactStagingDirectory)/Dev_flat"
-            New-Item -ItemType Directory -Path $flat | Out-Null
+      - template: pipelines/templates/netBuildAndTest_BuildCleanPublish.yaml
+        parameters:
+          environmentName: 'Production'
+          artifactName: ${{ parameters.artifactName }}
+          rootFolder: ${{ parameters.rootFolder }}
+          buildConfiguration: ${{ parameters.buildConfiguration }}
+          publishSingleFile: ${{ parameters.publishSingleFile }}
+          removeAppSettings: 'appsettings.Development.json|appsettings.Test.json'
+          isMain: ${{ parameters.isMain }}
 
-            # copy files flattening into single folder
-            Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                $origName = $_.Name
-                $dest     = Join-Path $flat $origName
-                Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-              }
-
-            Write-Host "Cleaning unwanted appsettings from $flat"
-            $remove = @('appsettings.Production.json','appsettings.Test.json')
-            foreach ($f in $remove) {
-              Get-ChildItem -Path $flat -Filter $f -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-            }
-
-            $zipPath = "$(Build.ArtifactStagingDirectory)/Dev/${{parameters.artifactName}}.zip"
-            Write-Host "Creating zip: $zipPath"
-            Compress-Archive -Path (Join-Path $flat '*') -DestinationPath $zipPath -Force
-
-      - task: DotNetCoreCLI@2
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        displayName: "Publish Production"
-        inputs:
-          command: publish
-          projects: |
-            ${{ parameters.rootFolder }}/**/*.csproj
-            !${{ parameters.rootFolder }}**/*Tests.csproj
-          publishWebProjects: false
-          publishTestResults: false
-          arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
-          zipAfterPublish: false
-          modifyOutputPath: true
-
-      - task: PowerShell@2
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})   
-        displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Prod"
-        inputs:
-          targetType: 'inline'
-          script: |
-            $src = "$(Build.ArtifactStagingDirectory)/Prod"
-            $flat = "$(Build.ArtifactStagingDirectory)/Prod_flat"
-            
-            New-Item -ItemType Directory -Path $flat | Out-Null
-            # copy files flattening into single folder
-            Get-ChildItem -Path $src -Recurse -File -ErrorAction SilentlyContinue |
-              ForEach-Object {
-                $origName = $_.Name
-                $dest     = Join-Path $flat $origName
-                Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-              }
-
-            Write-Host "Cleaning unwanted appsettings from $src"
-            $remove = @('appsettings.Development.json','appsettings.Test.json')
-            foreach ($f in $remove) {
-              Get-ChildItem -Path $flat -Filter $f -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-            }
-
-            $zipPath = "$(Build.ArtifactStagingDirectory)/Prod/${{parameters.artifactName}}.zip"
-            Write-Host "Creating zip: $zipPath"
-            Compress-Archive -Path (Join-Path $flat '*') -DestinationPath $zipPath -Force
-
-      - task: PublishBuildArtifacts@1
-        displayName: "DEV - Publish Build Artifacts"
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        inputs:
-          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Dev/${{parameters.artifactName}}.zip"
-          artifactName: "${{ parameters.artifactName }}_Dev"
-
-      - task: PublishBuildArtifacts@1
-        displayName: "PROD - Publish Build Artifacts"
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        inputs:
-          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Prod/${{parameters.artifactName}}.zip"
-          artifactName: "${{ parameters.artifactName }}_Prod"

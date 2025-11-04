@@ -17,20 +17,15 @@ parameters:
     values:
       - "true"
       - "false"
+  # the appsettings files to remove, separated by |
   - name: removeAppSettings
     type: string
     default: ""
-  - name: isMain
-    type: string
-    default: "false"
-    values:
-      - "true"
-      - "false"
 
 steps:
   - task: DotNetCoreCLI@2
     displayName: "Publish ${{ parameters.environmentName }}"
-    condition: and(succeeded(), eq('${{ parameters.isMain }}', 'true'))
+    condition: succeeded()
     inputs:
       command: publish
       projects: |
@@ -47,7 +42,7 @@ steps:
 
   - task: PowerShell@2
     displayName: "Remove unwanted appsettings and create ${{ parameters.artifactName }} zip for ${{ parameters.environmentName }}"
-    condition: and(succeeded(), eq('${{ parameters.isMain }}', 'true'))
+    condition: succeeded()
     inputs:
       targetType: 'inline'
       script: |
@@ -67,7 +62,7 @@ steps:
 
   - task: PublishBuildArtifacts@1
     displayName: "${{ parameters.environmentName }} - Publish Build Artifacts"
-    condition: and(succeeded(), eq('${{ parameters.isMain }}', 'true'))
+    condition: succeeded()
     inputs:
       PathtoPublish: "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}/${{ parameters.artifactName }}.zip"
       artifactName: "${{ parameters.artifactName }}_${{ parameters.environmentName }}"

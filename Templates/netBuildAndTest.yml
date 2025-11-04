@@ -33,7 +33,7 @@ jobs:
       - task: UseDotNet@2
         displayName: "Install .NET SDK"
         inputs:
-          version: ${{ variables.netVersion }}
+          version: ${{ parameters.netVersion }}
           performMultiLevelLookup: true
           includePreviewVersions: true
 
@@ -50,11 +50,11 @@ jobs:
           nugetConfigPath: "NuGet.config"
 
       - task: DotNetCoreCLI@2
-        displayName: "Build With $(buildConfiguration) Configuration"
+        displayName: "Build With ${{ parameters.buildConfiguration }} Configuration"
         inputs:
           command: build
           projects: "${{ parameters.rootFolder }}/**/*.csproj"
-          arguments: "--configuration $(buildConfiguration)"
+          arguments: "--configuration ${{ parameters.buildConfiguration }}"
 
       # on Linux, use Coverlet
       - task: DotNetCoreCLI@2
@@ -62,7 +62,7 @@ jobs:
         inputs:
           command: "test"
           projects: "${{ parameters.rootFolder }}/**/*Tests.csproj"
-          arguments: '--configuration $(buildConfiguration) --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
+          arguments: '--configuration Debug --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
           publishTestResults: true
 
       - task: PublishCodeCoverageResults@2
@@ -79,13 +79,13 @@ jobs:
           command: publish
           projects: |
             ${{ parameters.rootFolder }}/**/*.csproj
-            !${{ parameters.rootFolder }}**/*Tests.csproj
+            !${{ parameters.rootFolder }}/**/*Tests.csproj
           publishWebProjects: false
           publishTestResults: false
           ${{ if eq(parameters.publishSingleFile, 'true') }}:
-            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
+            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
           ${{ else }}:
-            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
+            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
           zipAfterPublish: false
           # use false, the output is placed directly in the specified output directory.
           modifyOutputPath: false
@@ -115,13 +115,13 @@ jobs:
           command: publish
           projects: |
             ${{ parameters.rootFolder }}/**/*.csproj
-            !${{ parameters.rootFolder }}**/*Tests.csproj
+            !${{ parameters.rootFolder }}/**/*Tests.csproj
           publishWebProjects: false
           publishTestResults: false
           ${{ if eq(parameters.publishSingleFile, 'true') }}:
-            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
+            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
           ${{ else }}:
-            arguments: "--configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
+            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
           zipAfterPublish: false
           modifyOutputPath: false
 

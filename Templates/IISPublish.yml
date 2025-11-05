@@ -24,6 +24,12 @@ parameters:
     values:
       - Net
       - Framework
+  - name: environmentName
+    type: string
+    values:
+      - Development
+      - Test
+      - Production
 
 jobs:
   - deployment: Deployment
@@ -48,7 +54,7 @@ jobs:
               displayName: "File Transform: appsettings.json from Variables"
               inputs:
                 folderPath: "$(Pipeline.Workspace)\\${{ parameters.artifactName }}\\*.zip"
-                jsonTargetFiles: "**/appsettings.Production.json"
+                jsonTargetFiles: "**/appsettings.${{ parameters.environmentName }}.json"
 
             - task: FileTransform@2
               condition: ${{ eq(parameters.dotNetType, 'Framework') }}

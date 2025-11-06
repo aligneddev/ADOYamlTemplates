@@ -46,17 +46,18 @@ steps:
     inputs:
       targetType: 'inline'
       script: |
-        $src = "$(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }}"
-        Write-Host "Cleaning unwanted appsettings from $src"
+        $src = "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}"
+        Write-Host "Cleaning unwanted appsettings ( ${{ parameters.removeAppSettings }} ) from $src"
         $removePattern = '${{ parameters.removeAppSettings }}'
         $remove = @()
         if (![string]::IsNullOrWhiteSpace($removePattern)) {
           $remove = $removePattern.Split('|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
         }
         foreach ($f in $remove) {
+          Write-Host "Removing file $f"
           Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         }
-        $zipPath = "$(Build.ArtifactStagingDirectory)/${{ parameters.adoEnvironmentName }}/${{ parameters.artifactName }}.zip"
+        $zipPath = "$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }}/${{ parameters.artifactName }}.zip"
         Write-Host "Creating zip: $zipPath"
         Compress-Archive -Path "$src\*" -DestinationPath $zipPath -Force
 

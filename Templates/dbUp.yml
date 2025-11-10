@@ -108,7 +108,7 @@ steps:
         $errorMessage = $_.Exception.Message
         Write-Error "DbUpRunner execution failed: $errorMessage"
         
-        if ($errorMessage -match "Microsoft\.Data\.SqlClient\.SqlException") {
+        if ($errorMessage -match "Microsoft\.Data\.SqlClient\.SqlException" ) {
           Write-Error "##vso[task.logissue type=error]SQL Exception detected during DbUp execution"
           exit 1
         }

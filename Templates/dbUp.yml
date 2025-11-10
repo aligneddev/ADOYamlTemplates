@@ -96,7 +96,25 @@ steps:
       # Write-Host "DEBUG: reportPath: $reportPath"
       # Write-Host "DEBUG: scriptsPath: ${{ parameters.scriptsToUpdatePath }}"
 
-      & $exe --connectionString="$conn" --reportPath="$reportPath" --scriptsPath="${{ parameters.scriptsToUpdatePath }}"
+      try {
+        & $exe --connectionString="$conn" --reportPath="$reportPath" --scriptsPath="${{ parameters.scriptsToUpdatePath }}"
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "DbUpRunner failed with exit code: $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+      }
+      catch {
+        $errorMessage = $_.Exception.Message
+        Write-Error "DbUpRunner execution failed: $errorMessage"
+        
+        if ($errorMessage -match "Microsoft\.Data\.SqlClient\.SqlException") {
+          Write-Error "##vso[task.logissue type=error]SQL Exception detected during DbUp execution"
+          exit 1
+        }
+        
+        exit 1
+      }
       
   - template: onProdDeploySuccess.yml
     parameters:

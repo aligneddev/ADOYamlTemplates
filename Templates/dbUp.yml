@@ -24,7 +24,7 @@ parameters:
     - Production
     - Test
     - Development
-
+# in the calling yaml, use jobs: workspace: clean: all to make sure old SQL scripts/artifacts aren't lingering around (see netiis-example.yaml)
 # All this was done manually and placed in c:\azagent\DbUpRunner folder 
   # there were multiple steps to get this to work on my DC VM
   # install: az extension add --name azure-devops

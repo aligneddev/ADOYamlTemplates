@@ -95,6 +95,8 @@ stages:
     jobs:
       - deployment: "Deploy_Dev_SQL"
         displayName: "Deploy Dev SQL"
+        workspace: 
+          clean: all
         environment:
           name: "Environment-Production-Database"
           resourceName: "AHDC832N01"

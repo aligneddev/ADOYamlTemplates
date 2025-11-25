@@ -33,7 +33,7 @@ stages:
           buildConfiguration: ${{ variables.buildConfiguration }}
           rootFolder: ${{ variables.rootFolder }}
           artifactName: ${{ variables.name }}
-          netVersion: "8.x"
+          netVersion: "10.x"
           isMain: ${{ variables.isMain }}
 
   - stage: PublishDevelopmentSQL

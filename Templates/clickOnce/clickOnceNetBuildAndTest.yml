@@ -1,0 +1,96 @@
+# Build ClickOnce apps for deployment (refactored to use a template)
+# App.config must be included and contain: <add key="Environment" value="__ENVIRONMENT__" /> to control the
+# In C#, use ConfigurationManager.AppSettings["Environment"] to read the value at runtime from the App.config file.
+# Self-contained multi-file (no PublishSingleFile) supported with ClickOnce.
+
+parameters:
+  - name: netVersion
+    type: string
+    default: "10.x"
+  - name: buildConfiguration
+    type: string
+    default: "Release"
+  - name: rootFolder
+    type: string
+  - name: artifactName
+    type: string
+  - name: projectName
+    type: string
+  - name: isMain
+    type: string
+    values:
+      - "true"
+      - "false"
+  - name: clickOncePublishUrl
+    type: string
+  - name: selfContained
+    type: string
+    values:
+      - "true"
+      - "false"
+  - name: majorVersion
+    type: number
+    default: 1
+  - name: minorVersion
+    type: number
+    default: 0
+
+jobs:
+  - job: BuildAndTest
+    displayName: "Build and Test"
+    steps:
+      - task: PowerShell@2
+        displayName: "Verify App.config placeholder"
+        inputs:
+          targetType: inline
+          script: |
+            $appConfigPath = "${{ parameters.rootFolder }}/${{ parameters.projectName }}/App.config"
+            if (!(Test-Path $appConfigPath)) {
+              Write-Error "App.config not found at $appConfigPath"
+              exit 1
+            }
+            $content = Get-Content $appConfigPath -Raw
+            if ($content -notmatch '<add key="Environment" value="__ENVIRONMENT__"') {
+              Write-Error "App.config missing required placeholder '__ENVIRONMENT__'."
+              exit 1
+            }
+            Write-Host "App.config verification passed."
+
+      - task: UseDotNet@2
+        displayName: "Install .NET SDK"
+        inputs:
+          version: ${{ parameters.netVersion }}
+          performMultiLevelLookup: true
+          includePreviewVersions: true
+
+      - task: NuGetAuthenticate@1
+        displayName: "NuGet Authenticate"
+
+      - task: DotNetCoreCLI@2
+        displayName: "Restore"
+        inputs:
+          command: restore
+          projects: "${{ parameters.rootFolder }}/**/*.csproj"
+          feedsToUse: config
+          nugetConfigPath: "NuGet.config"
+
+      - task: DotNetCoreCLI@2
+        displayName: "Build (${{ parameters.buildConfiguration }})"
+        inputs:
+          command: build
+          projects: "${{ parameters.rootFolder }}/**/*.csproj"
+          arguments: "--configuration ${{ parameters.buildConfiguration }}"
+
+      - task: DotNetCoreCLI@2
+        displayName: "Test"
+        inputs:
+          command: test
+          projects: "${{ parameters.rootFolder }}/**/*Tests.csproj"
+          arguments: '--configuration Debug --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
+          publishTestResults: true
+
+      - task: PublishCodeCoverageResults@2
+        displayName: "Publish code coverage report"
+        inputs:
+          codeCoverageTool: Cobertura
+          summaryFileLocation: "$(Agent.TempDirectory)/**/coverage.cobertura.xml"

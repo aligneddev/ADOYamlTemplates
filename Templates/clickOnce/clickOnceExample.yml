@@ -1,0 +1,117 @@
+# The example pipeline that creates a ClickOnce artifact and deploy to a network drive
+# Uses clickOnceNetBuildAndTest.yml template for building, then deploys ClickOnce from artifacts
+# I started from https://www.dhrutara.com/blogs/clickonce-yml-pipeline-azure-devops/, but upgraded it to .Net 10, removed the Migrations, added versioning, added the App.config to set the environment and split out to reusable templates.
+
+# Example pipeline that creates a ClickOnce artifact and deploy to a network drive
+# This is the usage example - it calls the clickOnce.yml template with variables
+
+variables:
+  majorVersion: 1
+  minorVersion: 0
+  netVersion: "10.x"
+  projectName: "MyClickOnceApp"
+  artifactName: "MyClickOnceApp"
+  rootFolder: "src"
+  # In ClickOnce deployment, this URL is embedded in the application manifest and determines:
+  # Where users install from - The initial installation source
+  # Where the app checks for updates - The application will check this URL for newer versions
+  # The application identity - Part of the ClickOnce application's unique identifier
+  # For example, if publishUrl is \\server\share\MyApp\, the ClickOnce deployment files are copied there, and users access \\server\share\MyApp\publish.htm to install the application. The app will then check that same location for updates when it runs.
+  # This is different from the deployRootPath parameter (used in the CopyFiles task), which is where the pipeline physically copies the files. Typically these would be the same value, but they serve different purposes:
+  # PublishUrl = embedded in the app manifest for runtime behavior
+  # deployRootPath = where the pipeline copies the build output  
+  publishUrlDevelopment: "\\\\server\\share\\DEV\\MyApp\\"
+  publishUrlProduction: "\\\\server\\share\\Prod\\MyApp\\"
+
+  ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+    isMain: "true"
+  ${{ else }}:
+    isMain: "false"
+  selfContained: "true"
+
+stages:
+- stage: 'BuildAndTest'
+  displayName: 'Build, Test and prepare artifacts the Application'
+  jobs:
+  - template: clickOnceNetBuildAndTest.yml
+    parameters:
+      netVersion: ${{ variables.netVersion }}
+      rootFolder: ${{ variables.rootFolder }}
+      projectName: ${{ variables.projectName }}
+      artifactName: ${{ variables.artifactName }}
+      isMain: ${{ variables.isMain }}
+      selfContained: ${{ variables.selfContained }}
+      majorVersion: ${{ variables.majorVersion }}
+      minorVersion: ${{ variables.minorVersion }}
+
+- stage: 'DeployClickOnceDev'
+  displayName: 'Deploy ClickOnce - Development'
+  dependsOn: BuildAndTest
+  condition: succeeded()
+  jobs:
+  - deployment: 'DeployClickOnceDev'
+    displayName: 'Deploy ClickOnce to Network Share - Development'
+    workspace:
+      clean: all
+    environment:
+      name: 'ADO-ClickOnce-Deployment-Development'
+      resourceType: 'virtualMachine'
+    strategy:
+      runOnce:
+        deploy:
+         steps:
+            - checkout: self
+              clean: true
+              fetchDepth: 1
+            - template: clickOnceEnvironmentPublish.yml
+              parameters:
+                environmentName: Development
+                environmentFolder: DEV
+                rootFolder: ${{ variables.rootFolder }}
+                projectName: ${{ variables.projectName }}
+                artifactName: ${{ variables.artifactName }}
+                clickOncePublishUrl: ${{ variables.publishUrlDevelopment }}
+                deployRootPath: ${{ variables.publishUrlDevelopment }}
+                buildConfiguration: ${{ variables.buildConfiguration }}
+                selfContained: ${{ variables.selfContained }}
+                isMain: ${{ variables.isMain }}
+                removeAppSettings:
+                  - appsettings.json
+                  - appsettings.Production.json
+                majorVersion: ${{ variables.majorVersion }}
+                minorVersion: ${{ variables.minorVersion }}
+
+- stage: 'DeployClickOnceProduction'
+  displayName: 'Deploy ClickOnce - Production'
+  dependsOn: DeployClickOnceDev
+  condition: succeeded()
+  jobs:
+  - deployment: 'DeployClickOnceProduction'
+    displayName: 'Deploy ClickOnce to Network Share - Production'
+    workspace:
+      clean: all
+    environment:
+      name: 'ADO-ClickOnce-Deployment-Production'
+      resourceType: 'virtualMachine'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: clickOnceEnvironmentPublish.yml
+              parameters:
+                environmentName: Production
+                environmentFolder: PROD
+                rootFolder: ${{ variables.rootFolder }}
+                projectName: ${{ variables.projectName }}
+                artifactName: ${{ variables.artifactName }}
+                clickOncePublishUrl: ${{ variables.publishUrlProduction }}
+                deployRootPath: ${{ variables.publishUrlProduction }}
+                buildConfiguration: ${{ variables.buildConfiguration }}
+                selfContained: ${{ variables.selfContained }}
+                isMain: ${{ variables.isMain }}
+                removeAppSettings:
+                  - appsettings.json
+                  - appsettings.Development.json
+                majorVersion: ${{ variables.majorVersion }}
+                minorVersion: ${{ variables.minorVersion }}
+

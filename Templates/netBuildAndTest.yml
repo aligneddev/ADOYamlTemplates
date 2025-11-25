@@ -5,7 +5,7 @@
 parameters:
   - name: netVersion
     type: string
-    default: "8.x"
+    default: "10.x"
   - name: buildConfiguration
     type: string
     default: "Release"

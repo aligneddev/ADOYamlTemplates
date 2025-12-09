@@ -12,18 +12,13 @@
 parameters:
   - name: environmentName
     type: string
-    default: Development
-    values:
-      - Development
-      - Production
-  - name: deployRootPath
-    type: string
-  - name: environmentFolder
-    type: string
     default: Dev
     values:
       - Dev
+      - Test
       - Prod
+  - name: deployRootPath
+    type: string
   - name: rootFolder
     type: string
   - name: projectName
@@ -34,7 +29,13 @@ parameters:
     type: string
   - name: buildConfiguration
     type: string
-    default: Release
+    default: "Release"
+  - name: targetFramework
+    type: string
+    default: "net10.0-windows"
+  - name: targetArchitecture
+    type: string
+    default: "win-x64"
   - name: selfContained
     type: string
     default: "false"
@@ -47,6 +48,8 @@ parameters:
     values:
       - "true"
       - "false"
+  - name: publishProfilePath
+    type: string      
   - name: removeAppSettings
     type: object
     default: []
@@ -56,7 +59,6 @@ parameters:
   - name: minorVersion
     type: number
     default: 0
-
 steps:
   # Configure App.config BEFORE publish so it's included in the output
   - task: PowerShell@2
@@ -65,68 +67,119 @@ steps:
     inputs:
       targetType: inline
       script: |
-        $appConfigPath = "${{ parameters.rootFolder }}\\${{ parameters.projectName }}\\App.config"
+        $appConfigPath = "${{ parameters.rootFolder }}\${{ parameters.projectName }}\App.config"
         if (!(Test-Path $appConfigPath)) {
           Write-Error "App.config missing at $appConfigPath"
           exit 1
         }
         Write-Host "Setting environment token to ${{ parameters.environmentName }}"
+
         (Get-Content $appConfigPath -Raw) -replace '__ENVIRONMENT__', '${{ parameters.environmentName }}' | Set-Content $appConfigPath
+  
+  - task: UseDotNet@2
+    displayName: "Use .NET SDK"
+    inputs:
+      packageType: sdk
+      version: 10.x
+      performMultiLevelLookup: true
+
+  - task: NuGetToolInstaller@1
+    displayName: 'Use NuGet 7.0.0'
+    inputs:
+      versionSpec: 7.0.0
+      checkLatest: true
+  
+  - task: NuGetCommand@2
+    displayName: 'Restore Packages'
+    inputs:
+      command: restore
+      restoreSolution: '**/*${{ parameters.projectName }}.csproj'
+      feedsToUse: config
+      nugetConfigPath: 'NuGet.config'
+      # Nuget.config should be at the root of the repo
+
+  # reference: https://learn.microsoft.com/en-us/visualstudio/deployment/building-dotnet-clickonce-applications-from-the-command-line?view=visualstudio&source=recommendations
+  - task: MSBuild@1
+    condition: succeeded()
+    displayName: "Publish ClickOnce with MSBuild"
+    inputs:
+      solution: '**/*${{ parameters.projectName }}.csproj'
+      msbuildArguments: '/target:publish /p:PublishProfileFullPath=${{ parameters.publishProfilePath }} /p:PublishDir=$(Build.ArtifactStagingDirectory) /p:PublishUrl=${{ parameters.clickOncePublishUrl }} /p:InstallUrl=${{ parameters.clickOncePublishUrl }}/ /p:ApplicationVersion=${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.$(Build.BuildId).0 /p:MinimumRequiredVersion=${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.0.0 /p:CreateWebPageOnPublish=true /p:Configuration=${{ parameters.buildConfiguration }} /p:RestorePackages=false'
+      msbuildArchitecture: x64
+      # the deployment VM has to have this setup with the dotnet 10 installer or VS 2026 Build Tools
+      msbuildLocationMethod: location
+      msbuildLocation: "D:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\MSBuild\\Current\\bin"
+      # msbuildVersion: '18.0' 18 was not found
+
+  # the Publish.html didn't get created, even though it is turned on in the .pubxml file
+  # - task: PowerShell@2
+  #   condition: succeeded()
+  #   displayName: "Generate publish.html for ${{ parameters.environmentName }}"
+  #   inputs:
+  #     targetType: inline
+  #     script: |
+  #       $version = "${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.$(Build.BuildId).0"
+  #       $basePath = "$(Build.ArtifactStagingDirectory)"
+  #       $sourcePublishHtm = "$basePath/publish.html"
+  #       if (!(Test-Path $sourcePublishHtm)) {
+  #         Write-Error "Base publish.html not found at $sourcePublishHtm"
+  #         exit 1
+  #       }
+  #       $raw = Get-Content $sourcePublishHtm -Raw
+  #       $updated = $raw -replace '\{VERSION\}', $version.Trim()
+  #       $destPath = "$basePath/publish.html"
+  #       $updated | Set-Content -Path $destPath
+  #       Write-Host "publish.html generated at $destPath with version $version"
 
   - task: PowerShell@2
     condition: succeeded()
-    displayName: "Build dotnet publish arguments"
+    displayName: "Setup staging folder with needed ClickOnce Files"
     inputs:
       targetType: inline
       script: |
-        $args = "$(Build.SourcesDirectory)\\${{ parameters.rootFolder }}\\${{ parameters.projectName }}\\${{ parameters.projectName }}.csproj /p:ApplicationVersion=${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.$(Build.BuildId).0 --configuration ${{ parameters.buildConfiguration }} --output ${{ parameters.deployRootPath }}\${{ parameters.environmentFolder }} /p:PublishUrl=${{ parameters.clickOncePublishUrl }}"
-        if ("${{ parameters.selfContained }}" -eq "true") {
-          $args += " --self-contained -r win-x64"
+        $target = "$(Build.ArtifactStagingDirectory)"
+        $filesToFind = @("*${{ parameters.projectName }}.application", "Publish.html", "setup.exe")
+        $stagingPath = "$target\Staging"
+        if (!(Test-Path $stagingPath)) {
+          New-Item -Path $stagingPath -ItemType Directory | Out-Null
         }
-        Write-Host "##vso[task.setvariable variable=PublishArgs]$args"
-
-  - task: DotNetCoreCLI@2
-    condition: succeeded()
-    displayName: "Publish ${{ parameters.environmentName }}"
-    inputs:
-      command: publish
-      publishWebProjects: false
-      publishTestResults: false
-      arguments: $(PublishArgs)
-      zipAfterPublish: false
-      modifyOutputPath: false
-
-  - task: PowerShell@2
-    condition: succeeded()
-    displayName: "Generate publish.htm for ${{ parameters.environmentName }}"
-    inputs:
-      targetType: inline
-      script: |
-        $version = "${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.$(Build.BuildId).0"
-        $basePath = "${{ parameters.deployRootPath }}\${{ parameters.environmentFolder }}"
-        $sourcePublishHtm = "$basePath/publish.htm"
-        if (!(Test-Path $sourcePublishHtm)) {
-          Write-Error "Base publish.htm not found at $sourcePublishHtm"
-          exit 1
+        foreach ($pattern in $filesToFind) {
+          Write-Host "Searching for files matching $pattern in $target"
+          $foundFiles = Get-ChildItem -Path $target -Filter $pattern -Recurse -File -ErrorAction SilentlyContinue
+          foreach ($file in $foundFiles) {
+            Write-Host "Moving $($file.FullName) to $stagingPath"
+            Move-Item -Path $file.FullName -Destination $stagingPath -Force
+          }
         }
-        $raw = Get-Content $sourcePublishHtm -Raw
-        $updated = $raw -replace '\{VERSION\}', $version.Trim()
-        $destPath = "$basePath/publish.htm"
-        $updated | Set-Content -Path $destPath
-        Write-Host "publish.htm generated at $destPath with version $version"
-
-  - task: PowerShell@2
-    condition: succeeded()
-    displayName: "Clean appsettings for ${{ parameters.environmentName }}"
-    inputs:
-      targetType: inline
-      script: |
-        $target = "${{ parameters.deployRootPath }}\\${{ parameters.environmentFolder }}"
-        Write-Host "Removing unwanted appsettings files from $target"
-        $remove = @(${{ join(', ', parameters.removeAppSettings) }})
-        foreach ($f in $remove) {
-          Get-ChildItem -Path $target -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+        $appFilesPath = "$(Build.ArtifactStagingDirectory)\Application Files"
+        if (Test-Path $appFilesPath) {
+          Write-Host "Moving Application Files from $appFilesPath to $stagingPath"
+          Move-Item -Path $appFilesPath -Destination $stagingPath -Force
+        } else {
+          Write-Host "No Application Files folder found at $appFilesPath"
         }
+
+  # running the install fails with "could not find file" for the appsettings.{env}.json that are deleted
+  # so we can't remove the other settings files. Do not add secrets into these files!
+  # - task: PowerShell@2
+  #   condition: succeeded()
+  #   displayName: "Clean appsettings for ${{ parameters.environmentName }}"
+  #   inputs:
+  #     targetType: inline
+  #     script: |
+  #         # The Applications Files folder has the appsettings files
+  #         $target = "$(Build.ArtifactStagingDirectory)\Staging\Application Files"
+  #         Write-Host "Removing unwanted appsettings files from $target"
+  #         $removePattern = '${{ join('|', parameters.removeAppSettings) }}'
+  #         $remove = @()
+  #         # ClickOnce publish adds .deploy to the end of the files
+  #         if (![string]::IsNullOrWhiteSpace($removePattern)) {
+  #           $remove = $removePattern.Split('|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { "$_.deploy" }
+  #         }
+  #         foreach ($f in $remove) {
+  #           Write-Host "Removing file $f"
+  #           Get-ChildItem -Path $target -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  #         }
 
   - task: PowerShell@2
     condition: succeeded()
@@ -134,15 +187,50 @@ steps:
     inputs:
       targetType: inline
       script: |
-        $basePath = "${{ parameters.deployRootPath }}\\${{ parameters.environmentFolder }}"
-        $zipPath = "$basePath\\{{ parameters.artifactName }}.zip"
-        Write-Host "Zipping $basePath to $zipPath"
-        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-        Compress-Archive -Path $basePath\* -DestinationPath $zipPath -Force
+        $basePath = "$(Build.ArtifactStagingDirectory)\Staging"
+        $zipFilePath = "$basePath\${{ parameters.artifactName }}.zip"
+        Write-Host "Zipping $basePath to $zipFilePath"
+        if (Test-Path $zipFilePath) { Remove-Item $zipFilePath -Force }
+        Compress-Archive -Path $basePath\* -DestinationPath $zipFilePath -Force 
+  
+  
+  # publish zip to build artifacts, uncomment if you want the artifact for rollback
+  # - task: PublishBuildArtifacts@1
+  #   condition: succeeded()
+  #   displayName: "Publish ClickOnce Zip Artifact for ${{ parameters.environmentName }}"
+  #   inputs:
+  #     PathtoPublish: '$(Build.ArtifactStagingDirectory)\Staging\${{ parameters.artifactName }}.zip'
+  #     ArtifactName: '${{ parameters.artifactName }}'
+  #     publishLocation: 'Container'
 
-  - task: PublishBuildArtifacts@1
+  - task: PowerShell@2
     condition: succeeded()
-    displayName: "${{ parameters.environmentName }} - Publish Build Artifacts"
+    displayName: "Clean, Move Zip and Unzip artifact to network share for ${{ parameters.environmentName }}"
     inputs:
-      PathtoPublish: "${{ parameters.deployRootPath }}\\${{ parameters.environmentFolder }}\\${{ parameters.artifactName }}.zip"
-      artifactName: "${{ parameters.artifactName }}_${{ parameters.environmentFolder }}"
+      targetType: inline
+      script: |
+        $basePath = "$(Build.ArtifactStagingDirectory)\Staging"
+        $zipFilePath = "$basePath\${{ parameters.artifactName }}.zip"
+
+        $networkFolderUnzipPath = "${{ parameters.deployRootPath }}"
+        $networkFolderZipFilePath = "$networkFolderUnzipPath\${{ parameters.artifactName }}.zip"
+        if (Test-Path $networkFolderUnzipPath) {
+          # NOTE: you may want to create a backup first, or publish the zip to the build artifact
+          Write-Host "Delete Existing $networkFolderUnzipPath files"
+          Get-ChildItem -Path $networkFolderUnzipPath | Remove-Item -Recurse -Force
+
+          Write-Host "Copy the zip to $networkFolderUnzipPath"
+          Copy-Item -Path "$zipFilePath" -Destination "$networkFolderUnzipPath" -Force
+
+          Write-Host "Unzipping $networkFolderZipFilePath"
+          Expand-Archive -Path $networkFolderZipFilePath -DestinationPath $networkFolderUnzipPath -Force
+          Write-Host "Files unzipped to $networkFolderUnzipPath"
+          # Write-Host "Delete existing Files on Agent in $basePath to save space"
+          # if (Test-Path $basePath) {
+          #   Get-ChildItem -Path $basePath | Remove-Item -Recurse -Force
+          # }
+        }
+        else {
+          Write-Error "Network folder $networkFolderUnzipPath does not exist."
+          exit 1
+        }

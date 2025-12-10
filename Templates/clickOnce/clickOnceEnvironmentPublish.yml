@@ -98,6 +98,46 @@ steps:
       nugetConfigPath: 'NuGet.config'
       # Nuget.config should be at the root of the repo
 
+  # You can remove this step if your appsettings are ok to include in any environment
+  # remember to be careful with secrets. You will want to use something like Azure Key Vault, which might be complicated to get working.
+  - task: PowerShell@2
+    condition: succeeded()
+    displayName: "Remove unwanted appsettings.json files"
+    inputs:
+      targetType: inline
+      script: |
+          # The Applications Files folder has the appsettings files
+          $target = "$(Build.SourcesDirectory)"
+          Write-Host "Removing unwanted appsettings files from $target"
+          $removePattern = '${{ join('|', parameters.removeAppSettings) }}'
+          $remove = @()
+          if (![string]::IsNullOrWhiteSpace($removePattern)) {
+            $remove = $removePattern.Split('|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          }
+          foreach ($f in $remove) {
+            Write-Host "Removing file $f"
+            Get-ChildItem -Path $target -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+
+          # modify the .csproj to remove references to the deleted appsettings files
+          $csprojPath = "${{ parameters.rootFolder }}\${{ parameters.projectName }}\${{ parameters.projectName }}.csproj"
+          if (!(Test-Path $csprojPath)) { 
+            Write-Error "Project file not found at $csprojPath"
+            exit 1
+          }
+          # make a backup Copy
+          Copy-Item -Path $csprojPath -Destination "$csprojPath.bak" -Force
+          $rawCsproj = Get-Content $csprojPath -Raw
+          foreach ($f in $remove) {
+            Write-Host "Removing reference to $f from $csprojPath"
+            # example to remove: <Content Include="appsettings.json">
+            #   <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+            # </Content>
+            $pattern = "<Content Include=`"$f`">.*?<\/Content>"
+            $rawCsproj = [regex]::Replace($rawCsproj, $pattern, '', 'Singleline')
+          }
+          Set-Content -Path $csprojPath -Value $rawCsproj
+          
   # reference: https://learn.microsoft.com/en-us/visualstudio/deployment/building-dotnet-clickonce-applications-from-the-command-line?view=visualstudio&source=recommendations
   - task: MSBuild@1
     condition: succeeded()
@@ -158,28 +198,6 @@ steps:
         } else {
           Write-Host "No Application Files folder found at $appFilesPath"
         }
-
-  # running the install fails with "could not find file" for the appsettings.{env}.json that are deleted
-  # so we can't remove the other settings files. Do not add secrets into these files!
-  # - task: PowerShell@2
-  #   condition: succeeded()
-  #   displayName: "Clean appsettings for ${{ parameters.environmentName }}"
-  #   inputs:
-  #     targetType: inline
-  #     script: |
-  #         # The Applications Files folder has the appsettings files
-  #         $target = "$(Build.ArtifactStagingDirectory)\Staging\Application Files"
-  #         Write-Host "Removing unwanted appsettings files from $target"
-  #         $removePattern = '${{ join('|', parameters.removeAppSettings) }}'
-  #         $remove = @()
-  #         # ClickOnce publish adds .deploy to the end of the files
-  #         if (![string]::IsNullOrWhiteSpace($removePattern)) {
-  #           $remove = $removePattern.Split('|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { "$_.deploy" }
-  #         }
-  #         foreach ($f in $remove) {
-  #           Write-Host "Removing file $f"
-  #           Get-ChildItem -Path $target -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-  #         }
 
   - task: PowerShell@2
     condition: succeeded()

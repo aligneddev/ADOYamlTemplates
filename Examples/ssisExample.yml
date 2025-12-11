@@ -1,0 +1,88 @@
+# Example to build and publish the SSIS package using the  Templates
+
+trigger:
+  - main
+
+pr:
+  - main
+
+pool:
+  vmImage: "windows-latest"
+
+variables:
+  artifactName: "Example"
+  folder: 'Pipelines\SSIS\Example\'
+  dtproj: "${{ variables.folder }}Example.dtproj"
+  ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+    isMain: "true"
+  ${{ else }}:
+    isMain: "false"
+
+stages:
+  - stage: BuildAndCreateArtifacts
+    jobs:
+      - template: ssisBuild.yml
+        parameters:
+          dtproj: ${{ variables.dtproj }}
+          sourceFolder: ${{ variables.folder }}
+          sqlFolder: "SQL"
+          artifactName: ${{ variables.artifactName }}
+          isMain: ${{ variables.isMain }}
+
+  - stage: Publish_Dev_SQL
+    condition: and(succeeded(), eq(variables.isMain, 'true'))
+    dependsOn: BuildAndCreateArtifacts
+    jobs:
+      - deployment: "Publish_Dev_SQL"
+        displayName: "Publish Dev SQL"
+        workspace: 
+          clean: all
+        environment:
+          name: "Development-Database"
+          resourceName: "ADOResourceNameHere"
+          resourceType: VirtualMachine
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: none
+                - download: current
+                  artifact: "SQL"
+                - template: dbUp.yml
+                  parameters:
+                    databaseServer: "DBserver"
+                    databaseName: "Example"
+                    scriptsToUpdatePath: "$(Agent.BuildDirectory)\\SQL"
+                    environmentName: "Dev"
+
+  - stage: Publish_Dev_SSIS
+    condition: and(succeeded(), eq(variables.isMain, true))
+    dependsOn: Publish_Dev_SQL
+    jobs:
+      # updates the Stored Procs, Views and Functions in the SQL folder as well
+      - template: ssisDeployToEnvironment.yml
+        parameters:
+          artifactName: ${{ variables.artifactName }}
+          environmentName: "Dev"
+          destinationPath: "/SSISDB/Example/ExamplePackage"
+          databaseAdoEnvironmentName: "Development-Database"
+          databaseAdoResourceName: "ADOResourceNameHere"
+          databaseServer: "DBserver"
+          databaseName: "Example"
+
+  # - stage: Publish_PRD_SQL
+  #   condition: and(succeeded(), eq(variables.isMain, true))
+  #   dependsOn: Publish_Dev_SSIS
+  #   jobs:
+  #     - template: ssisDeployToEnvironment.yml
+  #       parameters:
+  #         artifactName: ${{ variables.artifactName }}
+  #         environmentName: 'PRD'
+  #         destinationPath: '/SSISDB/Example/ExamplePackage'
+  #         databaseAdoEnvironmentName: 'Production-Database'
+  #         databaseAdoResourceName: 'ADOResourceNameHere'
+  #         databaseServer: 'DBserver'
+  #     # avoid Stage PublishProduction must contain at least one job with no dependencies.
+  #     - job: empty
+  #       steps:
+  #         - script: echo 'empty'

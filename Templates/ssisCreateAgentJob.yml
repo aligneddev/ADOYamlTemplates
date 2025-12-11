@@ -1,0 +1,173 @@
+
+# Create the SSIS SQL Agent Job the first time with the SQL script and skip or ignore after that
+# requires sysadmin server role to create the job or else you will get 
+# "Failed to execute: The SELECT permission was 
+#  denied on the object 'sysjobs', database 'msdb', schema 'dbo'.
+#  Only a member of the sysadmin server role can add a job for a different owner with @owner_login_name."
+# you'll need to have a user and password (which you can define in the Invoke-Sqlcmd parameters 
+# or give the ADO service user connected to a DB user that role which is not following Least Privilege)
+# it's only the msdb database that is involved.  So, every server, just msdb access though.
+parameters:
+  # should match the <name>.ispac
+  - name: artifactName
+    type: string
+  - name: environmentName
+    type: string
+    values:
+      - "POC"
+      - "TST"
+      - "REL"
+      - "PRD"
+  - name: databaseServer
+    type: string
+  - name: databaseName
+    type: string
+  # Example expected format (folder path within SSISDB):
+  # SSISDB\<path>\<artifactName>\
+  - name: ssisPackagePath
+    type: string
+
+steps:
+  - task: PowerShell@2
+    displayName: "Install SqlServer Module"
+    inputs:
+      targetType: "inline"
+      script: |
+        if (-not (Get-Module -ListAvailable -Name SqlServer)) {
+          Install-Module -Name SqlServer -Force -AllowClobber
+        }
+
+  - task: PowerShell@2
+    displayName: "Create SQL Server Agent Job with SQL Script if it does not exist"
+    inputs:
+      targetType: "inline"
+      script: |
+        # Use a single-quoted here-string so PowerShell does not interpret "$" or escape quotes.
+        $script = @'
+        USE [msdb];
+        SET NOCOUNT ON;
+
+        DECLARE @environmentName   nvarchar(10);
+        DECLARE @artifactName      nvarchar(128);
+        DECLARE @package           nvarchar(128);
+        DECLARE @vjob_name         nvarchar(256);
+        DECLARE @vstepname         nvarchar(300);
+        DECLARE @ssisFolderPath    nvarchar(300);
+        DECLARE @ssisPackageFull   nvarchar(400);
+        DECLARE @addJobStepCommand nvarchar(max);
+
+        /* Runtime replacement variables from ADO template */
+        SET @environmentName = N'${{ parameters.environmentName }}';
+        SET @artifactName    = N'${{ parameters.artifactName }}';
+        SET @package         = N'${{ parameters.artifactName }}';
+        SET @ssisFolderPath  = N'${{ parameters.ssisPackagePath }}'; -- e.g., SSISDB\EDW_<ENV>_CDW\<artifact>\
+
+        /* Derived variables */
+        SET @vjob_name  = @environmentName + N'_SSIS_' + @artifactName + N'_' + @package;
+        SET @vstepname  = N'EXEC SSIS ' + @artifactName + N' ' + @package + N'.dtsx';
+
+        /* Build package full path inside SSIS Catalog */
+        SET @ssisPackageFull = @ssisFolderPath + @package + N'.dtsx';
+
+        /*
+          Build SSIS execution command with robust double-quote handling using QUOTENAME(…,'"').
+          Equivalent to:
+          /ISSERVER "SSISDB\...\package.dtsx" /SERVER "<server>" /Par "$ServerOption::LOGGING_LEVEL(Int16)";1 ...
+        */
+        SET @addJobStepCommand =
+              N'/ISSERVER ' + QUOTENAME(@ssisPackageFull, '"')
+            + N' /SERVER ' + QUOTENAME(N'${{ parameters.databaseServer }}', '"')
+            + N' /Par ' + QUOTENAME(N'$ServerOption::LOGGING_LEVEL(Int16)', '"') + N';1'
+            + N' /Par ' + QUOTENAME(N'$ServerOption::SYNCHRONIZED(Boolean)', '"')   + N';True'
+            + N' /CALLERINFO SQLAGENT'
+            + N' /REPORTING E';
+
+        BEGIN TRANSACTION;
+          DECLARE @ReturnCode INT = 0;
+
+          -- Ensure the default category exists
+          IF NOT EXISTS (
+            SELECT 1 FROM msdb.dbo.syscategories
+            WHERE name = N'[Uncategorized (Local)]' AND category_class = 1
+          )
+          BEGIN
+            EXEC @ReturnCode = msdb.dbo.sp_add_category
+              @class = N'JOB', @type = N'LOCAL', @name = N'[Uncategorized (Local)]';
+            IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback;
+          END
+
+          -- Only create the job if it does not already exist
+          IF NOT EXISTS (SELECT 1 FROM msdb.dbo.sysjobs WHERE name = @vjob_name)
+          BEGIN
+            DECLARE @jobId UNIQUEIDENTIFIER;
+
+            EXEC @ReturnCode = msdb.dbo.sp_add_job
+              @job_name                     = @vjob_name,
+              @enabled                      = 1,
+              @notify_level_eventlog        = 0,
+              @notify_level_email           = 2,
+              @notify_level_netsend         = 0,
+              @notify_level_page            = 2,
+              @delete_level                 = 0,
+              @description                  = N'No description available.',
+              @category_name                = N'[Uncategorized (Local)]',
+              @owner_login_name             = N'SQLAgent_User',
+              @notify_email_operator_name   = N'CustomApp',
+              @notify_page_operator_name    = N'DBA',
+              @job_id                       = @jobId OUTPUT;
+
+            IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback;
+
+            EXEC @ReturnCode = msdb.dbo.sp_add_jobstep
+              @job_id            = @jobId,
+              @step_name         = @vstepname,
+              @step_id           = 1,
+              @cmdexec_success_code = 0,
+              @on_success_action = 1,   -- go to next step (or quit if last)
+              @on_success_step_id= 0,
+              @on_fail_action    = 2,   -- quit with failure
+              @on_fail_step_id   = 0,
+              @retry_attempts    = 0,
+              @retry_interval    = 0,
+              @os_run_priority   = 0,
+              @subsystem         = N'SSIS',
+              @command           = @addJobStepCommand,
+              @database_name     = N'master',
+              @flags             = 32,
+              @proxy_name        = N'SQLAgent_User_Proxy';
+
+            IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback;
+
+            EXEC @ReturnCode = msdb.dbo.sp_update_job
+              @job_id = @jobId, @start_step_id = 1;
+            IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback;
+
+            EXEC @ReturnCode = msdb.dbo.sp_add_jobserver
+              @job_id = @jobId, @server_name = N'(local)';
+            IF (@@ERROR <> 0 OR @ReturnCode <> 0) GOTO QuitWithRollback;
+          END
+          ELSE
+          BEGIN
+            -- Job already exists: skip creation
+            PRINT N'Job "' + @vjob_name + N'" already exists. Skipping creation.';
+          END
+
+          COMMIT TRANSACTION;
+          GOTO EndSave;
+
+        QuitWithRollback:
+          IF (@@TRANCOUNT > 0) ROLLBACK TRANSACTION;
+
+        EndSave:
+        '@
+
+        try {
+          Invoke-Sqlcmd -Query $script `
+            -ServerInstance "${{ parameters.databaseServer }}" `
+            -Database "${{ parameters.databaseName }}" `
+            -QueryTimeout 3600
+          Write-Host "Successfully executed"
+        }
+        catch {
+          Write-Error "Failed to execute: $($_.Exception.Message)"
+          throw

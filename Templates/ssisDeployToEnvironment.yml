@@ -100,10 +100,18 @@ jobs:
                   $projectPassword = ""
 
                   # Execute SSISDeploy.exe
-                  # Example (this is not what was run): SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ABCD;AHDC790DBd01" -at:win
+                  # Example (this is not what was run): SSISDeploy.exe -s:Example.ispac -d:"catalog;/SSISDB/ABCD;DatabaseServerName" -at:win
                   echo "Executed script `SSISDeploy.exe -s:$sourcePath -d:"$destinationType;$destinationPath;$destinationServer;" -at:$authType`"
                   
                   & SSISDeploy.exe -s:$sourcePath -d:"$destinationType;$destinationPath;$destinationServer;" -at:$authType
+             # requires sysadmin server role
+            - template: ssisCreateAgentJob.yml
+              parameters:
+                artifactName: ${{ parameters.artifactName }}
+                environmentName: ${{ parameters.environmentName }}
+                databaseServer: ${{ parameters.databaseServer }}
+                databaseName: ${{ parameters.databaseName }}
+                ssisPackagePath: ${{ parameters.destinationPath }}
 
             - template: onProdDeploySuccess.yml
               parameters:

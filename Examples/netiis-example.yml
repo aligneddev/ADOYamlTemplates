@@ -46,7 +46,7 @@ stages:
         displayName: "Deploy Dev SQL"
         environment:
           name: "Environment-Development-Database"
-          resourceName: "AHDC832N01"
+          resourceName: "ADOResource"
           resourceType: VirtualMachine
         strategy:
           runOnce:
@@ -55,7 +55,7 @@ stages:
                 - checkout: none
                 - download: current
                   artifact: "${{ variables.artifactName }}_SQL"
-                - template: Pipelines/dbUp.yml@AHPCommonTools
+                - template: Pipelines/dbUp.yml
                   parameters:
                     databaseServer: $(DatabaseServer)
                     databaseName: $(DbUpDatabaseName)
@@ -99,7 +99,7 @@ stages:
           clean: all
         environment:
           name: "Environment-Production-Database"
-          resourceName: "AHDC832N01"
+          resourceName: "ADOResource"
           resourceType: VirtualMachine
         strategy:
           runOnce:
@@ -108,7 +108,7 @@ stages:
                 - checkout: none
                 - download: current
                   artifact: "${{ variables.artifactName }}_SQL"
-                - template: Pipelines/dbUp.yml@AHPCommonTools
+                - template: Pipelines/dbUp.yml
                   parameters:
                     databaseServer: $(DatabaseServer)
                     databaseName: $(DbUpDatabaseName)

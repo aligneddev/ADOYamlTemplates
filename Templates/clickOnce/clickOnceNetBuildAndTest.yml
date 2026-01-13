@@ -1,7 +1,9 @@
 # Build ClickOnce apps for deployment (refactored to use a template)
-# App.config must be included and contain: <add key="Environment" value="__ENVIRONMENT__" /> to control the
+# App.config must be included and contain: <add key="Environment" value="__ENVIRONMENT__" /> to control the 
 # In C#, use ConfigurationManager.AppSettings["Environment"] to read the value at runtime from the App.config file.
 # Self-contained multi-file (no PublishSingleFile) supported with ClickOnce.
+
+# create the build artifact to be picked up by clickOnceEnvironmentPublish.yml
 
 parameters:
   - name: netVersion
@@ -21,76 +23,125 @@ parameters:
     values:
       - "true"
       - "false"
-  - name: clickOncePublishUrl
-    type: string
   - name: selfContained
     type: string
     values:
       - "true"
       - "false"
+  - name: targetFramework
+    type: string
+    default: "net10.0-windows"
+  - name: targetArchitecture
+    type: string
+    default: "win-x64"
   - name: majorVersion
     type: number
     default: 1
   - name: minorVersion
     type: number
     default: 0
+  # build artifacts for the given environments
+  - name: environmentNames
+    type: string
+    default: "Dev, Prod"
+  - name: clickOncePublishUrlDev
+    type: string
+  - name: clickOncePublishUrlProd
+    type: string
+  - name: publishProfilePath
+    type: string    
 
 jobs:
   - job: BuildAndTest
-    displayName: "Build and Test"
+    displayName: "Build Test and Publish Artifacts"
     steps:
-      - task: PowerShell@2
-        displayName: "Verify App.config placeholder"
-        inputs:
-          targetType: inline
-          script: |
-            $appConfigPath = "${{ parameters.rootFolder }}/${{ parameters.projectName }}/App.config"
-            if (!(Test-Path $appConfigPath)) {
-              Write-Error "App.config not found at $appConfigPath"
-              exit 1
-            }
-            $content = Get-Content $appConfigPath -Raw
-            if ($content -notmatch '<add key="Environment" value="__ENVIRONMENT__"') {
-              Write-Error "App.config missing required placeholder '__ENVIRONMENT__'."
-              exit 1
-            }
-            Write-Host "App.config verification passed."
+    - task: PowerShell@2
+      displayName: "Verify App.config placeholder"
+      inputs:
+        targetType: inline
+        script: |
+          $appConfigPath = "${{ parameters.rootFolder }}/${{ parameters.projectName }}/App.config"
+          if (!(Test-Path $appConfigPath)) {
+            Write-Error "App.config not found at $appConfigPath"
+            exit 1
+          }
+          $content = Get-Content $appConfigPath -Raw
+          if ($content -notmatch '<add key="Environment" value="__ENVIRONMENT__"') {
+            Write-Error "App.config missing required placeholder '__ENVIRONMENT__'."
+            exit 1
+          }
+          
+          Write-Host "App.config verification passed."
 
-      - task: UseDotNet@2
-        displayName: "Install .NET SDK"
-        inputs:
-          version: ${{ parameters.netVersion }}
-          performMultiLevelLookup: true
-          includePreviewVersions: true
+    - task: UseDotNet@2
+      displayName: "Install .NET SDK"
+      inputs:
+        version: ${{ parameters.netVersion }}
+        performMultiLevelLookup: true
+        includePreviewVersions: true
 
-      - task: NuGetAuthenticate@1
-        displayName: "NuGet Authenticate"
+    - task: NuGetAuthenticate@1
+      displayName: "NuGet Authenticate"
 
-      - task: DotNetCoreCLI@2
-        displayName: "Restore"
-        inputs:
-          command: restore
-          projects: "${{ parameters.rootFolder }}/**/*.csproj"
-          feedsToUse: config
-          nugetConfigPath: "NuGet.config"
+    - task: DotNetCoreCLI@2
+      displayName: "Restore"
+      inputs:
+        command: restore
+        projects: "${{ parameters.rootFolder }}/**/*.csproj"
+        feedsToUse: config
+        nugetConfigPath: "NuGet.config"
 
-      - task: DotNetCoreCLI@2
-        displayName: "Build (${{ parameters.buildConfiguration }})"
-        inputs:
-          command: build
-          projects: "${{ parameters.rootFolder }}/**/*.csproj"
-          arguments: "--configuration ${{ parameters.buildConfiguration }}"
+    - task: DotNetCoreCLI@2
+      displayName: "Build (${{ parameters.buildConfiguration }})"
+      inputs:
+        command: build
+        projects: "${{ parameters.rootFolder }}/**/*.csproj"
+        arguments: "--configuration ${{ parameters.buildConfiguration }}"
 
-      - task: DotNetCoreCLI@2
-        displayName: "Test"
-        inputs:
-          command: test
-          projects: "${{ parameters.rootFolder }}/**/*Tests.csproj"
-          arguments: '--configuration Debug --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
-          publishTestResults: true
+    - task: DotNetCoreCLI@2
+      displayName: "Test"
+      inputs:
+        command: test
+        projects: "${{ parameters.rootFolder }}/**/*Tests.csproj"
+        arguments: '--configuration Debug --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
+        publishTestResults: true
 
-      - task: PublishCodeCoverageResults@2
-        displayName: "Publish code coverage report"
-        inputs:
-          codeCoverageTool: Cobertura
-          summaryFileLocation: "$(Agent.TempDirectory)/**/coverage.cobertura.xml"
+    - task: PublishCodeCoverageResults@2
+      displayName: "Publish code coverage report"
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: "$(Agent.TempDirectory)/**/coverage.cobertura.xml"
+  # Click Once app can switch between environments (excluding Prod)
+    - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'Dev')) }}:
+        - template: clickOncePrepareArtifact.yml
+          parameters:
+              environmentName: Dev
+              artifactName: ${{ parameters.artifactName }}
+              rootFolder: ${{ parameters.rootFolder }}
+              projectName: ${{ parameters.projectName }}
+              clickOncePublishUrl: ${{ parameters.clickOncePublishUrlPOC }}
+              selfContained: ${{ parameters.selfContained }}
+              publishProfilePath: ${{ parameters.publishProfilePath }}
+              isMain: ${{ parameters.isMain }}
+              removeAppSettings:
+                - appsettings.json
+                - appsettings.Prod.json
+              majorVersion: ${{ parameters.majorVersion }}
+              minorVersion: ${{ parameters.minorVersion }}
+
+    - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'Prod')) }}:
+        - template: clickOncePrepareArtifact.yml
+          parameters:
+            environmentName: Prod
+            artifactName: ${{ parameters.artifactName }}
+            rootFolder: ${{ parameters.rootFolder }}
+            projectName: ${{ parameters.projectName }}
+            clickOncePublishUrl: ${{ parameters.clickOncePublishUrlProd }}
+            selfContained: ${{ parameters.selfContained }}
+            publishProfilePath: ${{ parameters.publishProfilePath }}
+            isMain: ${{ parameters.isMain }}
+            removeAppSettings:
+              - appsettings.json
+              - appsettings.Dev.json
+            majorVersion: ${{ parameters.majorVersion }}
+            minorVersion: ${{ parameters.minorVersion }}

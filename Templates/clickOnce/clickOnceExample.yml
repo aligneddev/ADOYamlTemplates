@@ -36,18 +36,23 @@ stages:
   - template: clickOnceNetBuildAndTest.yml
     parameters:
       netVersion: ${{ variables.netVersion }}
-      rootFolder: ${{ variables.rootFolder }}
-      projectName: ${{ variables.projectName }}
-      artifactName: ${{ variables.artifactName }}
       isMain: ${{ variables.isMain }}
+      rootFolder: ${{ variables.rootFolder }}
+      artifactName: ${{ variables.artifactName }}
+      projectName: ${{ variables.projectName }}
       selfContained: ${{ variables.selfContained }}
+      # publish
       majorVersion: ${{ variables.majorVersion }}
       minorVersion: ${{ variables.minorVersion }}
+      environmentNames: "POC, PRD"
+      clickOncePublishUrlPOC: ${{ variables.clickOncePublishUrlPOC }}
+      clickOncePublishUrlPRD: ${{ variables.clickOncePublishUrlPRD }}
+      publishProfilePath: ${{ variables.publishProfilePath }}
 
 - stage: 'DeployClickOnceDev'
   displayName: 'Deploy ClickOnce - Development'
   dependsOn: BuildAndTest
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables.isMain, 'true'))
   jobs:
   - deployment: 'DeployClickOnceDev'
     displayName: 'Deploy ClickOnce to Network Share - Development'
@@ -60,32 +65,22 @@ stages:
       runOnce:
         deploy:
          steps:
-            - checkout: self
-              clean: true
-              fetchDepth: 1
+            - checkout: none
+              persistCredentials: true
+            - download: current
+              artifact: "${{ variables.artifactName }}_Dev"
             - template: clickOnceEnvironmentPublish.yml
               parameters:
-                environmentName: Development
-                rootFolder: ${{ variables.rootFolder }}
-                projectName: ${{ variables.projectName }}
+                environmentName: Dev
                 artifactName: ${{ variables.artifactName }}
-                clickOncePublishUrl: ${{ variables.publishUrlDevelopment }}
-                deployRootPath: ${{ variables.publishUrlDevelopment }}
-                buildConfiguration: ${{ variables.buildConfiguration }}
-                selfContained: ${{ variables.selfContained }}
-                isMain: ${{ variables.isMain }}
-                removeAppSettings:
-                  - appsettings.json
-                  - appsettings.Production.json
-                majorVersion: ${{ variables.majorVersion }}
-                minorVersion: ${{ variables.minorVersion }}
+                deployRootPath: ${{ variables.clickOncePublishUrlDev }}
 
 - stage: 'DeployClickOnceProduction'
   displayName: 'Deploy ClickOnce - Production'
   dependsOn: DeployClickOnceDev
-  condition: succeeded()
+  condition: and(succeeded(), eq(variables.isMain, 'true'))
   jobs:
-  - deployment: 'DeployClickOnceProduction'
+  - deployment: 'DeployClickOnceProd'
     displayName: 'Deploy ClickOnce to Network Share - Production'
     workspace:
       clean: all
@@ -95,21 +90,14 @@ stages:
     strategy:
       runOnce:
         deploy:
-          steps:
+         steps:
+            - checkout: none
+              persistCredentials: true
+            - download: current
+              artifact: "${{ variables.artifactName }}_Prod"
             - template: clickOnceEnvironmentPublish.yml
               parameters:
-                environmentName: Production
-                rootFolder: ${{ variables.rootFolder }}
-                projectName: ${{ variables.projectName }}
+                environmentName: Prod
                 artifactName: ${{ variables.artifactName }}
-                clickOncePublishUrl: ${{ variables.publishUrlProduction }}
-                deployRootPath: ${{ variables.publishUrlProduction }}
-                buildConfiguration: ${{ variables.buildConfiguration }}
-                selfContained: ${{ variables.selfContained }}
-                isMain: ${{ variables.isMain }}
-                removeAppSettings:
-                  - appsettings.json
-                  - appsettings.Development.json
-                majorVersion: ${{ variables.majorVersion }}
-                minorVersion: ${{ variables.minorVersion }}
+                deployRootPath: ${{ variables.clickOncePublishUrlProd }}
 

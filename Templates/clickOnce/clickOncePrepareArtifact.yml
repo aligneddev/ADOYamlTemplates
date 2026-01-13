@@ -1,0 +1,222 @@
+# Create the deployment artifact and publish to the pipeline
+
+# Versioning:
+# Add this to your .csproj file:
+# <!-- The pipeline will increment and override this, matching the version to the BuildId.
+#      Change the pipeline parameter Major and Minor versions as needed
+# -->
+# <ApplicationVersion>0.0.0.0</ApplicationVersion>
+# <!-- MinimumRequiredVersion: Forces ClickOnce clients below this version to auto-update before running. Update with caution. -->
+# <MinimumRequiredVersion>1.0.0.0</MinimumRequiredVersion>
+
+parameters:
+  - name: environmentName
+    type: string
+    default: POC
+    values:
+      - POC
+      - TST
+      - REL
+      - PRD
+  - name: artifactName
+    type: string
+  - name: rootFolder
+    type: string
+  - name: projectName
+    type: string
+  - name: clickOncePublishUrl
+    type: string
+  - name: buildConfiguration
+    type: string
+    default: "Release"
+  - name: targetFramework
+    type: string
+    default: "net10.0-windows"
+  - name: targetArchitecture
+    type: string
+    default: "win-x64"
+  - name: selfContained
+    type: string
+    default: "false"
+    values:
+      - "true"
+      - "false"
+  - name: isMain
+    type: string
+    default: "true"
+    values:
+      - "true"
+      - "false"
+  - name: publishProfilePath
+    type: string      
+  - name: removeAppSettings
+    type: object
+    default: []
+  - name: majorVersion
+    type: number
+    default: 1
+  - name: minorVersion
+    type: number
+    default: 0
+
+steps:
+  # Configure App.config BEFORE publish so it's included in the output
+  - task: PowerShell@2
+    condition: succeeded()
+    displayName: "Configure App.config for ${{ parameters.environmentName }}"
+    inputs:
+      targetType: inline
+      script: |
+        $appConfigPath = "${{ parameters.rootFolder }}\${{ parameters.projectName }}\App.config"
+        if (!(Test-Path $appConfigPath)) {
+          Write-Error "App.config missing at $appConfigPath"
+          exit 1
+        }
+        Write-Host "Setting environment token to ${{ parameters.environmentName }}"
+
+        (Get-Content $appConfigPath -Raw) -replace '__ENVIRONMENT__', '${{ parameters.environmentName }}' | Set-Content $appConfigPath
+  
+  - task: UseDotNet@2
+    displayName: "Use .NET SDK"
+    inputs:
+      packageType: sdk
+      version: 10.x
+      performMultiLevelLookup: true
+
+  - task: NuGetToolInstaller@1
+    displayName: 'Use NuGet 7.0.0'
+    inputs:
+      versionSpec: 7.0.0
+      checkLatest: true
+  
+  - task: NuGetCommand@2
+    displayName: 'Restore Packages'
+    inputs:
+      command: restore
+      restoreSolution: '**/*${{ parameters.projectName }}.csproj'
+      feedsToUse: config
+      nugetConfigPath: 'NuGet.config'
+      # Nuget.config should be at the root of the repo
+
+  - task: PowerShell@2
+    condition: succeeded()
+    displayName: "Remove unwanted appsettings.json files"
+    inputs:
+      targetType: inline
+      script: |
+          # The Applications Files folder has the appsettings files
+          $target = "$(Build.SourcesDirectory)"
+          Write-Host "Removing unwanted appsettings files from $target"
+          $removePattern = '${{ join('|', parameters.removeAppSettings) }}'
+          $remove = @()
+          if (![string]::IsNullOrWhiteSpace($removePattern)) {
+            $remove = $removePattern.Split('|') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          }
+          foreach ($f in $remove) {
+            Write-Host "Removing file $f"
+            Get-ChildItem -Path $target -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+
+          # modify the .csproj to remove references to the deleted appsettings files
+          $csprojPath = "${{ parameters.rootFolder }}\${{ parameters.projectName }}\${{ parameters.projectName }}.csproj"
+          if (!(Test-Path $csprojPath)) { 
+            Write-Error "Project file not found at $csprojPath"
+            exit 1
+          }
+          # make a backup Copy
+          Copy-Item -Path $csprojPath -Destination "$csprojPath.bak" -Force
+          $rawCsproj = Get-Content $csprojPath -Raw
+          foreach ($f in $remove) {
+            Write-Host "Removing reference to $f from $csprojPath"
+            # example to remove: <Content Include="appsettings.json">
+            #   <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+            # </Content>
+            $pattern = "<Content Include=`"$f`">.*?<\/Content>"
+            $rawCsproj = [regex]::Replace($rawCsproj, $pattern, '', 'Singleline')
+          }
+          Set-Content -Path $csprojPath -Value $rawCsproj
+
+  # reference: https://learn.microsoft.com/en-us/visualstudio/deployment/building-dotnet-clickonce-applications-from-the-command-line?view=visualstudio&source=recommendations
+  - task: MSBuild@1
+    condition: succeeded()
+    displayName: "Publish ClickOnce with MSBuild"
+    inputs:
+      solution: '**/*${{ parameters.projectName }}.csproj'
+      msbuildArguments: '/target:publish /p:PublishProfileFullPath=${{ parameters.publishProfilePath }} /p:PublishDir=$(Build.ArtifactStagingDirectory)/${{ parameters.environmentName }} /p:PublishUrl=${{ parameters.clickOncePublishUrl }} /p:InstallUrl=${{ parameters.clickOncePublishUrl }}/ /p:ApplicationVersion=${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.$(Build.BuildId).0 /p:MinimumRequiredVersion=${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.0.0 /p:CreateWebPageOnPublish=true /p:Configuration=${{ parameters.buildConfiguration }} /p:RestorePackages=false'
+      msbuildArchitecture: x64
+      # running on ADO hosted windows-latest
+      msbuildVersion: '18.0'
+      # buiding on the VM
+      # the deployment VM has to have this setup with the dotnet 10 installer or VS 2026 Build Tools
+      # msbuildLocationMethod: location
+      # msbuildLocation: "D:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\MSBuild\\Current\\bin"
+      # msbuildVersion: '18.0' 18 was not found
+
+  # the Publish.html didn't get created, even though it is turned on in the .pubxml file
+  # - task: PowerShell@2
+  #   condition: succeeded()
+  #   displayName: "Generate publish.html for ${{ parameters.environmentName }}"
+  #   inputs:
+  #     targetType: inline
+  #     script: |
+  #       $version = "${{ parameters.majorVersion }}.${{ parameters.minorVersion }}.$(Build.BuildId).0"
+  #       $basePath = "$(Build.ArtifactStagingDirectory)"
+  #       $sourcePublishHtm = "$basePath/publish.html"
+  #       if (!(Test-Path $sourcePublishHtm)) {
+  #         Write-Error "Base publish.html not found at $sourcePublishHtm"
+  #         exit 1
+  #       }
+  #       $raw = Get-Content $sourcePublishHtm -Raw
+  #       $updated = $raw -replace '\{VERSION\}', $version.Trim()
+  #       $destPath = "$basePath/publish.html"
+  #       $updated | Set-Content -Path $destPath
+  #       Write-Host "publish.html generated at $destPath with version $version"
+
+  - task: PowerShell@2
+    condition: succeeded()
+    displayName: "Setup staging folder with needed ClickOnce Files"
+    inputs:
+      targetType: inline
+      script: |
+        # the /p:PublishDir from above
+        $target = "$(Build.ArtifactStagingDirectory)\${{ parameters.environmentName }}"
+        $filesToFind = @("*${{ parameters.projectName }}.application", "Publish.html", "setup.exe")
+        $stagingPath = "$(Build.ArtifactStagingDirectory)\Staging\${{ parameters.environmentName }}"
+        if (!(Test-Path $stagingPath)) {
+          New-Item -Path $stagingPath -ItemType Directory | Out-Null
+        }
+        foreach ($pattern in $filesToFind) {
+          Write-Host "Searching for files matching $pattern in $target"
+          $foundFiles = Get-ChildItem -Path $target -Filter $pattern -Recurse -File -ErrorAction SilentlyContinue
+          foreach ($file in $foundFiles) {
+            Write-Host "Moving $($file.FullName) to $stagingPath"
+            Move-Item -Path $file.FullName -Destination $stagingPath -Force
+          }
+        }
+        $appFilesPath = "$(Build.ArtifactStagingDirectory)\${{ parameters.environmentName }}\Application Files"
+        if (Test-Path $appFilesPath) {
+          Write-Host "Moving Application Files from $appFilesPath to $stagingPath"
+          Move-Item -Path $appFilesPath -Destination $stagingPath -Force
+        } else {
+          Write-Host "No Application Files folder found at $appFilesPath"
+        }
+
+  - task: PowerShell@2
+    condition: succeeded()
+    displayName: "Create zip for ${{ parameters.environmentName }}"
+    inputs:
+      targetType: inline
+      script: |
+        $basePath = "$(Build.ArtifactStagingDirectory)\Staging\${{ parameters.environmentName }}"
+        $zipFilePath = "$basePath\${{ parameters.artifactName }}.zip"
+        Write-Host "Zipping $basePath to $zipFilePath"
+        if (Test-Path $zipFilePath) { Remove-Item $zipFilePath -Force }
+        Compress-Archive -Path $basePath\* -DestinationPath $zipFilePath -Force 
+  
+  # publish zip to build artifacts, uncomment if you want the artifact for rollback
+  - task: PublishBuildArtifacts@1
+    condition: succeeded()
+    displayName: "Publish ClickOnce Zip Artifact for ${{ parameters.environmentName }}"
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)\Staging\${{ parameters.environmentName }}\${{ parameters.artifactName }}.zip'
+      ArtifactName: '${{ parameters.artifactName }}_${{ parameters.environmentName }}'

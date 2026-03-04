@@ -16,6 +16,34 @@ parameters:
     type: number
 
 steps:
+  # https://beta.stackoverflow.com/questions/78770339/how-can-i-get-the-name-of-the-user-that-approved-azure-devops-pipeline
+  - task: PowerShell@2
+    displayName: 'check approvals'
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    inputs:
+      targetType: inline
+      script: |
+        $headers = @{
+            Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN"
+        }
+
+        $uri = "{0}/{1}/_apis/pipelines/approvals?`$expand=steps&api-version=7.1-preview.1" -f $env:SYSTEM_COLLECTIONURI, $env:SYSTEM_TEAMPROJECTID
+
+        Write-Host "uri concat is $uri"
+
+        Write-Host "build id is $($env:BUILD_BUILDID)"
+
+        $response = Invoke-RestMethod -Uri $uri -Method 'Get' -Headers $headers
+
+        foreach($item in $response.value){
+          if($item.pipeline.owner.id -eq $env:BUILD_BUILDID){
+              foreach($item2 in $item.steps){
+                  Write-Host "who approved the pipeline --- $($item2.actualApprover.uniqueName)"
+              }
+              break
+          }
+        }
   - task: PowerShell@2
     name: RetainALongTime
     displayName: Retain Deployment Build Indefinitely

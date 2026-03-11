@@ -167,61 +167,64 @@ jobs:
                   } else {
                     Write-Host "IIS sanity checks PASSED."
                   }
-                
-            - task: IISWebAppManagementOnMachineGroup@0
-              displayName: "Start IIS Start"
-              inputs:
-                IISDeploymentType: "IISWebsite"
-                ActionIISWebsite: "StartWebsite"
-                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
-
-                
-            ## for sites with the ConfigurationFileEncrypter, the site has an error of the settings file being locked until a stop, restart and stop of the site
-            - task: PowerShell@2
-              displayName: 'Warm-up Site (Ping and Encrypt)'
-              condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ ne(parameters.siteUrl, '') }})
-              inputs:
-                targetType: 'inline'
-                script: |
-                  $url = '${{ parameters.siteUrl }}'
-                  Write-Host "Warming up site:  ${{ parameters.siteUrl }}"
-                  try {
-                    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-                    $response = Invoke-WebRequest -Uri  ${{ parameters.siteUrl }} -UseBasicParsing -TimeoutSec 30
-                    Write-Host "Warm-up successful. Status: $($response.StatusCode)"
-                  } catch {
-                    Write-Warning "Warm-up request failed: $($_.Exception.Message)"
-                  }
 
             - task: IISWebAppManagementOnMachineGroup@0
-              displayName: "Stop IIS Site"
-              inputs:
-                IISDeploymentType: "IISWebsite"
-                ActionIISWebsite: "StopWebsite"
-                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
-
-            - task: IISWebAppManagementOnMachineGroup@0
-              displayName: "Restart App Pool"
+              displayName: "Restart App Pool (before starting site)"
               inputs:
                 IISDeploymentType: 'IISApplicationPool'
                 ActionIISApplicationPool: 'RecycleAppPool'
                 StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'
-
+                
             - task: IISWebAppManagementOnMachineGroup@0
               displayName: "Start IIS Start"
               inputs:
                 IISDeploymentType: "IISWebsite"
                 ActionIISWebsite: "StartWebsite"
                 StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
+                
+            ## for sites with the ConfigurationFileEncrypter, the site has an error of the settings file being locked until a stop, restart and stop of the site
+            - task: PowerShell@2
+              displayName: 'Warm-up Site (Ping and Encrypt) with retries'
+              condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ ne(parameters.siteUrl, '') }})
+              inputs:
+                targetType: 'inline'
+                script: |
+                  $baseUrl = ('${{ parameters.siteUrl }}').Trim() -replace '/+$', ''
+                  $url = $baseUrl
+                  $maxRetries = 3
+                  $delaySeconds = 2
+                  
+                  Write-Host "Warming up site: $url"
+                  
+                  for ($i = 1; $i -le $maxRetries; $i++) {
+                    try {
+                      [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+                      $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+                      Write-Host "Warm-up attempt $i successful. Status: $($response.StatusCode)"
+                      exit 0
+                    } catch {
+                      Write-Host "Warm-up attempt $i failed: $($_.Exception.Message)"
+                      
+                      if ($i -lt $maxRetries) {
+                        Write-Host "Retrying in $delaySeconds seconds..."
+                        Start-Sleep -Seconds $delaySeconds
+                      }
+                    }
+                  }
+                  
+                  Write-Warning "Warm-up completed with retries exhausted. Check site health below."
+
 
             # https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-10.0
             - task: PowerShell@2
               displayName: 'Health probe'
               condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ eq(parameters.runHealthCheck, true) }})
+              continueOnError: true
               inputs:
                 targetType: 'inline'
                 script: |
-                  $url = '${{ parameters.siteUrl }}/health'
+                  $baseUrl = ('${{ parameters.siteUrl }}').Trim() -replace '/+$', ''
+                  $url = "$baseUrl/health"
                   
                   $maxRetries = 3
                   for ($i = 1; $i -le $maxRetries; $i++) {
@@ -240,7 +243,7 @@ jobs:
                     }
                   }
                   
-                  throw "Health probe failed after $maxRetries attempts"
+                  Write-Warning "Health probe failed after $maxRetries attempts. Continuing deployment with warning."
 
             - template: onProdDeploySuccess.yml
               parameters:

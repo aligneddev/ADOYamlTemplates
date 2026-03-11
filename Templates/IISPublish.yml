@@ -5,8 +5,6 @@
 parameters:
   - name: artifactName
     type: string
-  # 'Development-IIS-OnPremise', 'Production-IIS-OnPremise'
-  # IisAdoEnvironmentName in the variable group
   # the environment has the agent that is running on the IIS server
   - name: adoEnvironment
     type: string
@@ -24,12 +22,28 @@ parameters:
     values:
       - Net
       - Framework
+
+  # optional. The url to the site to ping the site to trigger the ConfigurationFileEncrypter, 
+  # then stop and start the site fixes the error with the settings file locked by another
+  # if you are not using ConfigurationFileEncrypter, this isn't needed, but can still help to warm up the site
+  - name: siteUrl
+    type: string
+    default: ""
   - name: environmentName
     type: string
     values:
       - Development
       - Test
       - Production
+  - name: isMain
+    type: string
+    default: variables['Build.SourceBranch']
+  - name: runSanityCheck
+    type: boolean
+    default: false
+  - name: runHealthCheck
+    type: boolean
+    default: false
 
 jobs:
   - deployment: Deployment
@@ -43,11 +57,13 @@ jobs:
       runOnce:
         deploy:
           steps:
+            - checkout: none
+              persistCredentials: true 
             - download: current
               artifact: ${{ parameters.artifactName }}
 
             # see the Readme.me for more details on File configuration Transformations
-            # the ASPNETCORE_ENVIRONMENT=Production is set in the web.config for .Net applications
+            # the ASPNETCORE_ENVIRONMENT=PRD is set in the web.config for .Net applications
             # Assuming you are using IISPublish for Production
             - task: FileTransform@2
               condition: ${{ eq(parameters.dotNetType, 'Net') }}
@@ -63,57 +79,173 @@ jobs:
                 folderPath: "$(Pipeline.Workspace)\\${{ parameters.artifactName }}\\*.zip"
                 xmlTargetFiles: "**/web.config"
 
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Stop IIS Site"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StopWebsite"
+                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
+
             - task: IISWebAppDeploymentOnMachineGroup@0
               displayName: "Deploy IIS client code"
               inputs:
                 WebsiteName: ${{ parameters.iisWebSiteName }}
                 Package: $(Pipeline.Workspace)\${{ parameters.artifactName }}\**\*.zip
                 TakeAppOfflineFlag: true
-                RemoveAdditionalFilesFlag: true - task: PowerShell@2
-
-            - template: onProdDeploySuccess.yml
-              parameters:
-                buildId: $(Build.BuildId)
-                definitionId: $(System.DefinitionId)
-                requestedForId: $(Build.RequestedForId)
-                # ${{ parameters.adoEnvironment }} will be {Prefix}-{Development/Test/Production}-{Type ex: Exe}
-                condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'), ${{ contains(parameters.adoEnvironment, 'Production') }})
-        
-            # these steps may not be needed
-            - task: IISWebAppManagementOnMachineGroup@0
-              displayName: "Stop IIS Site"
+                RemoveAdditionalFilesFlag: true
+            
+            - task: PowerShell@2
+              displayName: 'Post-deploy IIS sanity checks for .Net (not Framework)'
+              condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ eq(parameters.runSanityCheck, true)}}, ${{ eq(parameters.dotNetType, 'Net') }})
               inputs:
-                IISDeploymentType: "IISWebsite"
-                ActionIISWebsite: "StopWebsite"
-                StartStopWebsiteName: ${{parameters.iisWebSiteName}}
+                targetType: 'inline'
+                pwsh: false  # use Windows PowerShell since we need WebAdministration
+                script: |
+                  # Parameters
+                  $SiteName             = '${{ parameters.iisWebSiteName }}'
+                  $ExpectedPhysicalPath = '${{ parameters.iisTargetFolder }}'
 
-            - task: IISWebAppManagementOnMachineGroup@0
-              displayName: "Restart App Pool"
-              inputs:
-                IISDeploymentType: 'IISApplicationPool'
-                ActionIISApplicationPool: 'RecycleAppPool'
-                StartStopRecycleAppPoolName: ${{ parameters.iisAppPoolName }}
+                  Write-Host "=== Import WebAdministration and inspect IIS ==="
+                  Import-Module WebAdministration -ErrorAction Stop
 
+                  # 1) Site physical path
+                  $site = Get-Item "IIS:\Sites\$SiteName" -ErrorAction Stop
+                  $actualPath = $site.physicalPath
+                  Write-Host "Site: $SiteName"
+                  Write-Host "PhysicalPath (actual): $actualPath"
+                  Write-Host "PhysicalPath (expected): $ExpectedPhysicalPath"
+
+                  $errors = @()
+
+                  if (-not (Test-Path $ExpectedPhysicalPath)) {
+                    $errors += "Expected path does not exist: $ExpectedPhysicalPath"
+                  }
+
+                  # Compare paths case-insensitively and normalized
+                  if ($null -ne $actualPath -and $null -ne $ExpectedPhysicalPath) {
+                    $actualFull   = [System.IO.Path]::GetFullPath($actualPath)
+                    $expectedFull = [System.IO.Path]::GetFullPath($ExpectedPhysicalPath)
+                    if ($actualFull -ne $expectedFull) {
+                      $errors += "Site physicalPath mismatch. Actual: '$actualFull' | Expected: '$expectedFull'"
+                    }
+                  } else {
+                    $errors += "Site physicalPath is null or expected path not provided."
+                  }
+
+                  # 2) App Pool settings
+                  $appPoolName = $site.applicationPool
+                  $appPool = Get-Item "IIS:\AppPools\$appPoolName" -ErrorAction Stop
+                  Write-Host "AppPool: $appPoolName"
+                  Write-Host "managedRuntimeVersion: $($appPool.managedRuntimeVersion)"
+                  Write-Host "managedRuntimeVersion should be empty for ASP.NET Core. The framework is hosted in-process by AspNetCoreModuleV2, not by the CLR managed runtime. A non-empty value (like "v4.0") would indicate it's configured for a classic .NET Framework app, which would be wrong."
+                  Write-Host "managedPipelineMode:  $($appPool.managedPipelineMode)"
+
+                  # In ASP.NET Core under IIS: No Managed Code (empty) + Integrated
+                  if (($appPool.managedRuntimeVersion -ne $null) -and ($appPool.managedRuntimeVersion -ne '')) {
+                    $errors += "AppPool '$appPoolName' is not 'No Managed Code'. Value: '$($appPool.managedRuntimeVersion)'."
+                  }
+                  if ($appPool.managedPipelineMode -ne 'Integrated') {
+                    $errors += "AppPool '$appPoolName' pipeline mode is not 'Integrated'. Value: '$($appPool.managedPipelineMode)'."
+                  }
+
+                  # 3) AspNetCoreModuleV2 installed
+                  $appcmd = Join-Path $env:windir 'system32\inetsrv\appcmd.exe'
+                  if (-not (Test-Path $appcmd)) {
+                    $errors += "appcmd.exe not found at expected path: $appcmd"
+                  } else {
+                    $modulesOutput = & $appcmd list modules 2>&1
+                    $hasAspNetCoreV2 = $modulesOutput -match 'AspNetCoreModuleV2'
+                    if (-not $hasAspNetCoreV2) {
+                      $errors += "AspNetCoreModuleV2 is not registered in IIS modules. Ensure the .NET Hosting Bundle is installed."
+                    }
+                  }
+
+                  # Summarize and fail if needed
+                  if ($errors.Count -gt 0) {
+                    Write-Error ("IIS sanity checks FAILED:`n - " + ($errors -join "`n - "))
+                    exit 1
+                  } else {
+                    Write-Host "IIS sanity checks PASSED."
+                  }
+                
             - task: IISWebAppManagementOnMachineGroup@0
               displayName: "Start IIS Start"
               inputs:
                 IISDeploymentType: "IISWebsite"
                 ActionIISWebsite: "StartWebsite"
-                StartStopWebsiteName: ${{parameters.iisWebSiteName}}
-              
-             # warm up the site
-             - task: PowerShell@2
+                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
+
+                
+            ## for sites with the ConfigurationFileEncrypter, the site has an error of the settings file being locked until a stop, restart and stop of the site
+            - task: PowerShell@2
               displayName: 'Warm-up Site (Ping and Encrypt)'
-              condition: ${{ ne(parameters.siteUrl, '') }}
+              condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ ne(parameters.siteUrl, '') }})
               inputs:
                 targetType: 'inline'
                 script: |
                   $url = '${{ parameters.siteUrl }}'
                   Write-Host "Warming up site:  ${{ parameters.siteUrl }}"
                   try {
+                    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
                     $response = Invoke-WebRequest -Uri  ${{ parameters.siteUrl }} -UseBasicParsing -TimeoutSec 30
                     Write-Host "Warm-up successful. Status: $($response.StatusCode)"
                   } catch {
                     Write-Warning "Warm-up request failed: $($_.Exception.Message)"
                   }
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Stop IIS Site"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StopWebsite"
+                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Restart App Pool"
+              inputs:
+                IISDeploymentType: 'IISApplicationPool'
+                ActionIISApplicationPool: 'RecycleAppPool'
+                StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'
+
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Start IIS Start"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StartWebsite"
+                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
+
+            # https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-10.0
+            - task: PowerShell@2
+              displayName: 'Health probe'
+              condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ eq(parameters.runHealthCheck, true) }})
+              inputs:
+                targetType: 'inline'
+                script: |
+                  $url = '${{ parameters.siteUrl }}/health'
+                  
+                  $maxRetries = 3
+                  for ($i = 1; $i -le $maxRetries; $i++) {
+                    Write-Host "Running: curl.exe -s -o /dev/null -w `"%{http_code}`" --insecure `"$url`""
+                    $result = curl.exe -s -o /dev/null -w "%{http_code}" --insecure "$url"
+                    Write-Host "Attempt $i - Status Code: $result"
+                    
+                    if ([int]$result -lt 400) {
+                      Write-Host "Health check passed"
+                      exit 0
+                    }
+                    
+                    if ($i -lt $maxRetries) {
+                      Write-Host "Retrying in 5 seconds..."
+                      Start-Sleep -Seconds 5
+                    }
+                  }
+                  
+                  throw "Health probe failed after $maxRetries attempts"
+
+            - template: onProdDeploySuccess.yml
+              parameters:
+                buildId: $(Build.BuildId)
+                definitionId: $(System.DefinitionId)
+                requestedForId: $(Build.RequestedForId)
+                condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ contains(parameters.adoEnvironment, 'Production') }})
 

@@ -86,6 +86,9 @@ stages:
           # could be $(IisCertThumbnail-ProductXYZ)
           iisCertThumbnail: ""
           siteUrl: "https://aligneddev.net" # your site url here
+          runSanityCheck: true
+          runHealthCheck: true
+          isMain: ${{ variables.isMain }}
 
   - stage: PublishProductionSQL
     condition: and(succeeded(), eq(variables.isMain, 'true'))
@@ -127,4 +130,7 @@ stages:
           iisWebSiteName: '${{ variables.name }}_Prod'
           iisTargetFolder: 'E:\Applications\${{ variables.name }}'
           dotNetType: 'Net'
+          runSanityCheck: true
+          runHealthCheck: true
+          isMain: ${{ variables.isMain }}
 

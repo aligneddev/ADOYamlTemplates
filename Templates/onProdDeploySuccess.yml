@@ -18,7 +18,7 @@ parameters:
 steps:
   # https://beta.stackoverflow.com/questions/78770339/how-can-i-get-the-name-of-the-user-that-approved-azure-devops-pipeline
   - task: PowerShell@2
-    displayName: 'check approvals'
+    displayName: 'Record Approvals'
     env:
       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
     inputs:
@@ -44,6 +44,7 @@ steps:
               break
           }
         }
+
   - task: PowerShell@2
     name: RetainALongTime
     displayName: Retain Deployment Build Indefinitely

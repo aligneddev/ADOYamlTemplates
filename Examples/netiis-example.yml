@@ -91,13 +91,16 @@ stages:
           isMain: ${{ variables.isMain }}
 
   - stage: PublishProductionSQL
+    # runLatest tells Azure DevOps to keep only the newest run when multiple runs compete for the same protected deployment target, canceling older ones.
+    # then we don't have to manually cancel runs that are out of date and we don't want to deploy
+    lockBehavior: runLatest
     condition: and(succeeded(), eq(variables.isMain, 'true'))
     dependsOn: BuildAndTest
     variables:
       - group: "Environment-Production"
     jobs:
-      - deployment: "Deploy_Dev_SQL"
-        displayName: "Deploy Dev SQL"
+      - deployment: "Deploy_Prod_SQL"
+        displayName: "Deploy Prod SQL"
         workspace: 
           clean: all
         environment:
@@ -118,6 +121,7 @@ stages:
                     scriptsToUpdatePath: "$(Agent.BuildDirectory)\\${{ variables.artifactName }}_SQL"
                     environment: "Production"
   - stage: PublishProduction
+    lockBehavior: runLatest
     condition: and(succeeded(), eq(variables.isMain, true))
     variables:
     - group: Production-OnPremise

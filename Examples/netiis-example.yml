@@ -39,8 +39,6 @@ stages:
   - stage: PublishDevelopmentSQL
     condition: and(succeeded(), eq(variables.isMain, 'true'))
     dependsOn: BuildAndTest
-    variables:
-      - group: "Environment-Development"
     jobs:
       - deployment: "Deploy_Dev_SQL"
         displayName: "Deploy Dev SQL"
@@ -66,8 +64,6 @@ stages:
   - stage: PublishDevelopment
     condition: and(succeeded(), eq(variables.isMain, true))
     dependsOn: BuildAndTest
-    variables:
-      - group: Development-OnPremise
     jobs:
       # will create the app pool or website in IIS
       - template: Pipelines/IISPublishWithCreate.yml@AdoCommonTools
@@ -90,14 +86,23 @@ stages:
           runHealthCheck: true
           isMain: ${{ variables.isMain }}
 
+  - template: Pipelines/CancelWaitingForApprovalMainDeployments.yml@AdoCommonTools
+    parameters:
+      isMain: ${{ variables.isMain }}
+
   - stage: PublishProductionSQL
-    # runLatest tells Azure DevOps to keep only the newest run when multiple runs compete for the same protected deployment target, canceling older ones.
-    # then we don't have to manually cancel runs that are out of date and we don't want to deploy
+    # is lockBehavior: runLatest needed after adding CancelWaitingForApprovalMainDeployments.yml?
+    # Not for the specific problem you were solving. The new cancel stage in netiis-example.yml:93 is what handles older main runs that are stuck before production approval. lockBehavior: runLatest at netiis-example.yml:99 and netiis-example.yml:122 does not fix that approval-pending case.
+
+    # I would still keep it. It gives you a second layer of protection once runs actually reach the production stage and compete for the same protected target. That still matters for cases like:
+
+    # A manual rerun or manually queued run that starts after the cancel stage has already executed.
+    # Two runs reaching the production environment close together due to timing or retries.
+    # Future pipeline changes where another path reaches production without going through the cancel stage.
+    # So the practical answer is: not strictly needed anymore, but still useful as defense in depth
     lockBehavior: runLatest
     condition: and(succeeded(), eq(variables.isMain, 'true'))
-    dependsOn: BuildAndTest
-    variables:
-      - group: "Environment-Production"
+    dependsOn: CancelWaitingForApprovalMainDeployments
     jobs:
       - deployment: "Deploy_Prod_SQL"
         displayName: "Deploy Prod SQL"
@@ -123,8 +128,7 @@ stages:
   - stage: PublishProduction
     lockBehavior: runLatest
     condition: and(succeeded(), eq(variables.isMain, true))
-    variables:
-    - group: Production-OnPremise
+    dependsOn: PublishProductionSQL
     jobs:
       - template: Pipelines/IISPublish.yml@AdoCommonTools
         parameters:

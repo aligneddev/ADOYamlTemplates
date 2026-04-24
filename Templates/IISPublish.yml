@@ -15,6 +15,7 @@ parameters:
   - name: iisWebSiteName
     type: string
   # ex: '%SystemDrive%\inetpub\wwwroot\$(websiteName)'
+  # only used for verifications
   - name: iisTargetFolder
     type: string
   - name: dotNetType
@@ -42,6 +43,14 @@ parameters:
     type: boolean
     default: false
   - name: runHealthCheck
+    type: boolean
+    default: false
+  # Hosting a virtual application under the main website is common, 
+  - name: virtualApplication
+    type: string
+    default: ""
+  # the deployment steps are a bit different since you don't want to delete files outside of the virtual application folder. If you are deploying to a virtual application, provide the name here and set hasVirtualApplication to true. If deploying to root, leave this empty and set hasVirtualApplication to false.
+  - name: hasVirtualApplication
     type: boolean
     default: false
 
@@ -80,6 +89,13 @@ jobs:
                 xmlTargetFiles: "**/web.config"
 
             - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Stop App Pool"
+              inputs:
+                IISDeploymentType: 'IISApplicationPool'
+                ActionIISApplicationPool: 'StopAppPool'
+                StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'   
+
+            - task: IISWebAppManagementOnMachineGroup@0
               displayName: "Stop IIS Site"
               inputs:
                 IISDeploymentType: "IISWebsite"
@@ -90,9 +106,18 @@ jobs:
               displayName: "Deploy IIS client code"
               inputs:
                 WebsiteName: ${{ parameters.iisWebSiteName }}
+                # deployed to the virtualApplication sub folder if provided
+                VirtualApplication: ${{ parameters.virtualApplication }}
                 Package: $(Pipeline.Workspace)\${{ parameters.artifactName }}\**\*.zip
                 TakeAppOfflineFlag: true
-                RemoveAdditionalFilesFlag: true
+                # When deploying to ROOT (virtualApplication is empty)
+                ${{ if eq(parameters.hasVirtualApplication, true) }}:
+                  RemoveAdditionalFilesFlag: false
+
+                # When deploying to a VIRTUAL APPLICATION (non-empty), don't delete the application folder
+                ${{ if eq(parameters.virtualApplication, false) }}:
+                  RemoveAdditionalFilesFlag: true
+
             
             - task: PowerShell@2
               displayName: 'Post-deploy IIS sanity checks for .Net (not Framework)'
@@ -167,14 +192,22 @@ jobs:
                   } else {
                     Write-Host "IIS sanity checks PASSED."
                   }
-
+            
+            # Always running this avoids problems with restart
             - task: IISWebAppManagementOnMachineGroup@0
-              displayName: "Restart App Pool (before starting site)"
+              displayName: "Start App Pool"
+              inputs:
+                IISDeploymentType: 'IISApplicationPool'
+                ActionIISApplicationPool: 'StartAppPool'
+                StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'   
+             
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Restart App Pool"
               inputs:
                 IISDeploymentType: 'IISApplicationPool'
                 ActionIISApplicationPool: 'RecycleAppPool'
-                StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'
-                
+                StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'   
+
             - task: IISWebAppManagementOnMachineGroup@0
               displayName: "Start IIS Start"
               inputs:
@@ -186,11 +219,11 @@ jobs:
             - task: PowerShell@2
               displayName: 'Warm-up Site (Ping and Encrypt) with retries'
               condition: and(succeeded(), ${{ eq (parameters.isMain, true) }}, ${{ ne(parameters.siteUrl, '') }})
+              continueOnError: true
               inputs:
                 targetType: 'inline'
                 script: |
-                  $baseUrl = ('${{ parameters.siteUrl }}').Trim() -replace '/+$', ''
-                  $url = $baseUrl
+                  $url = ('${{ parameters.siteUrl }}').Trim() -replace '/+$', ''
                   $maxRetries = 3
                   $delaySeconds = 2
                   
@@ -213,8 +246,29 @@ jobs:
                   }
                   
                   Write-Warning "Warm-up completed with retries exhausted. Check site health below."
+            
+            # making sure it's all ready to go
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Restart App Pool"
+              inputs:
+                IISDeploymentType: 'IISApplicationPool'
+                ActionIISApplicationPool: 'RecycleAppPool'
+                StartStopRecycleAppPoolName: '${{ parameters.iisAppPoolName }}'   
+            
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Stop IIS Site"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StopWebsite"
+                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
 
-
+            - task: IISWebAppManagementOnMachineGroup@0
+              displayName: "Start IIS Start"
+              inputs:
+                IISDeploymentType: "IISWebsite"
+                ActionIISWebsite: "StartWebsite"
+                StartStopWebsiteName: '${{parameters.iisWebSiteName}}'
+            
             # https://learn.microsoft.com/en-us/aspnet/core/host-and-deploy/health-checks?view=aspnetcore-10.0
             - task: PowerShell@2
               displayName: 'Health probe'

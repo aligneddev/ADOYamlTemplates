@@ -1,4 +1,4 @@
-# Create the deployment artifact and publish to the pipeline
+# Create the Deploy artifact and Publish to the pipeline
 
 # Versioning:
 # Add this to your .csproj file:
@@ -147,7 +147,7 @@ steps:
       # running on ADO hosted windows-latest
       msbuildVersion: '18.0'
       # buiding on the VM
-      # the deployment VM has to have this setup with the dotnet 10 installer or VS 2026 Build Tools
+      # the Deploy VM has to have this setup with the dotnet 10 installer or VS 2026 Build Tools
       # msbuildLocationMethod: location
       # msbuildLocation: "D:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\MSBuild\\Current\\bin"
       # msbuildVersion: '18.0' 18 was not found

@@ -23,6 +23,13 @@ jobs:
 
 https://elanderson.net/2020/04/azure-devops-pipelines-use-yaml-across-repos/ was the initial inspiration
 
+# Terms
+We're going to operate under this naming scheme for the time being.
+
+- Build   - Creating artifacts by building the specified process.
+- Publish - Moving the artifacts necessary for Deployments to a specified staging location. 
+- Deploy  - Taking artifacts and deploying them to the specified environments (POC, REL, TST, PRD).
+
 ## Examples
 
 The Examples folder has an example of using these templates.
@@ -50,7 +57,7 @@ Note: **The better way to secure secrets would be to use Azure Key Vault.** The 
 - No secrets stored in the appsettings.json or web.configs!
 - Variables are better, encrypted environment variables on the server better and Azure Key Vault would be even better
 - use Variable Groups for common secrets, Variables on the pipeline for project specific
-- Replace Tokens in the publish step to avoid secrets being stored in the artifacts for the build
+- Replace Tokens in the Publish step to avoid secrets being stored in Build artifacts
 
 ## Configuration Transformation
 
@@ -58,11 +65,11 @@ https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/file-tr
 
 https://learn.microsoft.com/en-us/previous-versions/azure/devops/pipelines/tasks/transforms-variable-substitution?view=tfs-2018
 
-For Framework, the configuration file is transformed based from the file on the build configuration (Development for .Net, Debug=Development for Framework. Release=Production) during the BuildAndTest Stage. Ex: If release, the values from web.Production.config are placed into web.config.
+For Framework, the configuration file is transformed based from the file on the Build configuration (Development for .Net, Debug=Development for Framework. Release=Production) during the BuildAndTest stage. Ex: If release, the values from web.Production.config are placed into web.config.
 
-For .Net, the json file is chosen for the set ASPNETCORE_ENVIRONMENT (see the Appsettings.json section below) which is set in the build stage and added to the artifact for that environment.
+For .Net, the json file is chosen for the set ASPNETCORE_ENVIRONMENT (see the Appsettings.json section below) which is set in the Build stage and added to the artifact for that environment.
 
-Then secrets from the ADO Variable Group (shared) or ADO Variables for the Pipeline are set in the web.config/appsettings.{Environment}.json during the deployment stage (keeping the secrets out of the artifacts stored in the pipeline).
+Then secrets from the ADO Variable Group (shared) or ADO Variables for the Pipeline are set in the web.config/appsettings.{Environment}.json during the Deploy stage (keeping the secrets out of artifacts stored in the pipeline).
 
 The config file is deployed to the environment. If the application is using the ConfigurationFileEncrypter, AddEncryptedJson("appsetttings.Production.json"), the config file will be encrypted upon startup. The readme has more information. 
 
@@ -83,7 +90,7 @@ Used for .Net Framework, these templates assume that there is a web.config, web.
 
 Used for .Net, these templates assume there is an appsettings.json, appsettings.Development.json and appsettings.Production.json.
 
-The "/p:EnvironmentName={Develpment/Release}" is set in the build phase with a FileTransform step, setting this in the web.config, by adding it in the IISPublish yml Deployment stage and exeSqlAgentPublish step.
+The "/p:EnvironmentName={Develpment/Release}" is set in the Build phase with a FileTransform step, setting this in the web.config, by adding it in the IISPublish yml Deploy stage and exeSqlAgentPublish step.
 ```xml
 <aspNetCore processPath="dotnet" 
             arguments=".\MyApp.dll" 

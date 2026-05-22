@@ -1,4 +1,4 @@
-# Deploy/Publish the SSIS Package to the Database Server
+# Deploy the SSIS Package to the Database Server
 # Dev and Production Environments that are setup in the ADO UI under Pipelines > Environments
 # https://learn.microsoft.com/en-us/sql/integration-services/devops/ssis-devops-overview
 

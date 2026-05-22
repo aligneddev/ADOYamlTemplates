@@ -1,4 +1,4 @@
-# Build .Net Web apps with artifacts for deployment
+# Build .Net Web apps with artifacts for Deploy
 # https://learn.microsoft.com/en-us/azure/devops/pipelines/ecosystems/dotnet-core?view=azure-devops&tabs=yaml-editor
 # these can run on ubuntu-latest
 

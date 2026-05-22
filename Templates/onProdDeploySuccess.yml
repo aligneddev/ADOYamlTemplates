@@ -1,4 +1,4 @@
-# Execute after a Prod deployment is successful
+# Execute after a Prod Deploy is successful
 # Retain the builds for auditing
 # Tag the repo with the buildId
 parameters:
@@ -47,7 +47,7 @@ steps:
 
   - task: PowerShell@2
     name: RetainALongTime
-    displayName: Retain Deployment Build Indefinitely
+    displayName: Retain Build From Deploy Indefinitely
     inputs:
       failOnStderr: true
       targetType: 'inline'
@@ -69,7 +69,7 @@ steps:
   # Requirements
   #  Enable OAuth Token Access:
   #   In your pipeline YAML or UI, ensure:
-  #   - checkout: self # none works when under deployment - job:
+  #   - checkout: self # none works when under Deploy - job:
   #     persistCredentials: true
   - task: PowerShell@2
     displayName: "Tag Git Commit via REST API"

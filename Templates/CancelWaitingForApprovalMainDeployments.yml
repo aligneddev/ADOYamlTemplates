@@ -1,8 +1,8 @@
-# Cancel older in-progress Deployment for the same pipeline and branch before production approval.
+# Cancel older in-progress Deploy runs for the same pipeline and branch before production approval.
 
-# lockBehavior:runLatest tells Azure DevOps to keep only the newest run when multiple Deployment compete for the same protected deployment target, canceling older ones.
-# The docs explain the mismatch: checks run in category order, and Exclusive lock Deployment after approvals. That means an older run can sit at manual approval without ever being canceled by runLatest, because it has not yet reached the lock decision point.
-# This only applies when Deployment are actively competing for a protected deployment target. When Deployment have approval pending, they haven't reached the deployment target yet, so the lock behavior doesn't kick in.
+# lockBehavior:runLatest tells Azure DevOps to keep only the newest run when multiple Deploy runs compete for the same protected deployment target, canceling older ones.
+# The docs explain the mismatch: checks run in category order, and Exclusive lock happens after approvals. That means an older run can sit at manual approval without ever being canceled by runLatest, because it has not yet reached the lock decision point.
+# This only applies when Deploy runs are actively competing for a protected deployment target. When Deploy runs have approval pending, they haven't reached the deployment target yet, so the lock behavior doesn't kick in.
 # See [Microsoft documentation](https://learn.microsoft.com/en-us/azure/devops/pipelines/process/deployment-jobs?view=azure-devops#protect-deployment-targets) for more on protected deployment targets and lock behaviors.
 
 # The Build Service needs to have Stop Builds changed to allow in the Pipeline security permissions: https://beta.stackoverflow.com/questions/62044055/is-it-possible-to-cancel-a-azure-devops-pipeline-job-programmatically
@@ -13,7 +13,7 @@ parameters:
     
 steps:
 - task: PowerShell@2
-  displayName: Cancel older main deployments waiting for approval
+  displayName: Cancel older main Deploy runs waiting for approval
   condition: and(succeeded(), ${{ eq (parameters.isMain, true) }} )
   continueOnError: true
   env:
@@ -55,7 +55,7 @@ steps:
       Write-Host "Builds To Cancel: {0}", $buildsToCancel.Count
 
       if ($buildsToCancel.Count -eq 0) {
-          Write-Host "No older main deployments found that are waiting for approval."
+          Write-Host "No older main Deploy runs found that are waiting for approval."
           return
       }
 

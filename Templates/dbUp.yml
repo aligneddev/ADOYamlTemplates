@@ -1,5 +1,5 @@
 # Apply Sql from a folder using the DbUpRunner
-# use under the jobs - deployment > deploy steps
+# use under jobs - deployment (job type) > deploy steps
 # We built DbUp into a DbUpRunner console app and deployed it with ADO universal packages
 
 parameters:

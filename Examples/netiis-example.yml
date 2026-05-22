@@ -36,7 +36,7 @@ stages:
           netVersion: "10.x"
           isMain: ${{ variables.isMain }}
 
-  - stage: PublishDevelopmentSQL
+  - stage: DeployDevelopmentSQL
     condition: and(succeeded(), eq(variables.isMain, 'true'))
     dependsOn: BuildAndTest
     jobs:
@@ -61,7 +61,7 @@ stages:
                     environment: "Development"
                     publishSingleFile: "false"
 
-  - stage: PublishDevelopment
+  - stage: DeployDevelopment
     condition: and(succeeded(), eq(variables.isMain, true))
     dependsOn: BuildAndTest
     jobs:
@@ -90,7 +90,7 @@ stages:
     parameters:
       isMain: ${{ variables.isMain }}
 
-  - stage: PublishProductionSQL
+  - stage: DeployProductionSQL
     # is lockBehavior: runLatest needed after adding CancelWaitingForApprovalMainDeployments.yml?
     # Not for the specific problem you were solving. The new cancel stage in netiis-example.yml:93 is what handles older main runs that are stuck before production approval. lockBehavior: runLatest at netiis-example.yml:99 and netiis-example.yml:122 does not fix that approval-pending case.
 
@@ -125,10 +125,10 @@ stages:
                     databaseName: $(DbUpDatabaseName)
                     scriptsToUpdatePath: "$(Agent.BuildDirectory)\\${{ variables.artifactName }}_SQL"
                     environment: "Production"
-  - stage: PublishProduction
+  - stage: DeployProduction
     lockBehavior: runLatest
     condition: and(succeeded(), eq(variables.isMain, true))
-    dependsOn: PublishProductionSQL
+    dependsOn: DeployProductionSQL
     jobs:
       - template: Pipelines/IISPublish.yml@AdoCommonTools
         parameters:

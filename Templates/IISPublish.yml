@@ -49,7 +49,7 @@ parameters:
   - name: virtualApplication
     type: string
     default: ""
-  # the deployment steps are a bit different since you don't want to delete files outside of the virtual application folder. If you are deploying to a virtual application, provide the name here and set hasVirtualApplication to true. If deploying to root, leave this empty and set hasVirtualApplication to false.
+  # the Deploy steps are a bit different since you don't want to delete files outside of the virtual application folder. If you are deploying to a virtual application, provide the name here and set hasVirtualApplication to true. If deploying to root, leave this empty and set hasVirtualApplication to false.
   - name: hasVirtualApplication
     type: boolean
     default: false

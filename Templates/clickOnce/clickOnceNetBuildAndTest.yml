@@ -1,4 +1,4 @@
-# Build ClickOnce apps for deployment (refactored to use a template)
+# Build ClickOnce apps for Deploy (refactored to use a template)
 # App.config must be included and contain: <add key="Environment" value="__ENVIRONMENT__" /> to control the 
 # In C#, use ConfigurationManager.AppSettings["Environment"] to read the value at runtime from the App.config file.
 # Self-contained multi-file (no PublishSingleFile) supported with ClickOnce.

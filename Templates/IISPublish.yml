@@ -304,6 +304,10 @@ jobs:
                           Write-Host "❌ Curl failed (network/DNS/timeout)"
                       }
 
+                      if ([string]::IsNullOrWhiteSpace($result)) {
+                          Write-Host "❌ Empty response from curl"
+                      }
+
                       [int]$statusCode = -1
                       $parsed = [int]::TryParse($result, [ref]$statusCode)
 

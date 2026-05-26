@@ -278,26 +278,60 @@ jobs:
                 targetType: 'inline'
                 script: |
                   $baseUrl = ('${{ parameters.siteUrl }}').Trim() -replace '/+$', ''
-                  $url = "$baseUrl/health"
-                  
-                  $maxRetries = 3
-                  for ($i = 1; $i -le $maxRetries; $i++) {
-                    Write-Host "Running: curl.exe -s -o /dev/null -w `"%{http_code}`" --insecure `"$url`""
-                    $result = curl.exe -s -o /dev/null -w "%{http_code}" --insecure "$url"
-                    Write-Host "Attempt $i - Status Code: $result"
-                    
-                    if ([int]$result -lt 400) {
-                      Write-Host "Health check passed"
-                      exit 0
-                    }
-                    
-                    if ($i -lt $maxRetries) {
-                      Write-Host "Retrying in 5 seconds..."
-                      Start-Sleep -Seconds 5
-                    }
+
+                  if ($baseUrl -notmatch '/health($|[/?#])') {
+                      $url = "$baseUrl/health"
+                  } else {
+                      $url = $baseUrl
                   }
-                  
-                  Write-Warning "Health probe failed after $maxRetries attempts. Continuing deployment with warning."
+
+                  $maxRetries = 3
+                  $delaySeconds = 5
+
+                  for ($i = 1; $i -le $maxRetries; $i++) {
+
+                      Write-Host "Running: curl.exe --silent --output /dev/null --write-out `"%{http_code}`" --max-time 10 --insecure `"$url`""
+
+                      $result = curl.exe `
+                          --silent `
+                          --output /dev/null `
+                          --write-out "%{http_code}" `
+                          --max-time 10 `
+                          --insecure `
+                          "$url"
+
+                      if (-not $?) {
+                          Write-Host "❌ Curl failed (network/DNS/timeout)"
+                      }
+
+                      [int]$statusCode = -1
+                      $parsed = [int]::TryParse($result, [ref]$statusCode)
+
+                      Write-Host "Attempt $i - Raw: $result Parsed: $statusCode"
+
+                      if ($parsed -and $statusCode -eq 200) {
+                          Write-Host "✅ Health check passed"
+                          exit 0
+                      }
+
+                      if ($i -eq $maxRetries) {
+                          Write-Warning "❌ Health probe failed after $maxRetries attempts"
+
+                          switch ($statusCode) {
+                              000 { Write-Warning "No response (timeout / connection failure)" }
+                              {$_ -ge 500} { Write-Warning "Server error (5xx)" }
+                              {$_ -ge 400} { Write-Warning "Client error (4xx)" }
+                              {$_ -ge 300} { Write-Warning "Unexpected redirect (3xx)" }
+                              default { Write-Warning "Unknown status / parse failure" }
+                          }
+
+                          Write-Warning "Sometimes IIS file locks can cause failures (e.g., config file in use). Recycling IIS may help."
+                          exit 1
+                      }
+
+                      Write-Host "Retrying in $delaySeconds seconds..."
+                      Start-Sleep -Seconds $delaySeconds
+                  }
 
             - template: onProdDeploySuccess.yml
               parameters:

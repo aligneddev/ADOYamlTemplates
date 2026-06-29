@@ -9,6 +9,7 @@ parameters:
   - name: buildConfiguration
     type: string
     default: "Release"
+  # The folder where the main project with Program.cs is located    
   - name: rootFolder
     type: string
   - name: artifactName

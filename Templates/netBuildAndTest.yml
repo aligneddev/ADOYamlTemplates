@@ -75,7 +75,6 @@ jobs:
             # need Microsoft.Testing.Extensions.CodeCoverag for -Coverage
             arguments: >
               --configuration ${{ parameters.buildConfiguration }}
-              --no-build
               --report-trx
               --coverage
               --coverage-output-format cobertura
@@ -88,7 +87,6 @@ jobs:
             projects: '**/*Tests/*.csproj'
             arguments: >
               --configuration ${{ parameters.buildConfiguration }}
-              --no-build
               --logger trx
               --collect:"XPlat Code Coverage"
               --DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura

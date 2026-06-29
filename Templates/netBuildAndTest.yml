@@ -25,6 +25,14 @@ parameters:
     values:
       - "true"
       - "false"
+  # new testing mode is the Microsoft Testing Platform: https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test
+  # this is designated in the global.json
+  - name: mtp
+    type: string
+    default: "true"
+    values:
+      - "true"
+      - "false"
 
 jobs:
   - job: BuildAndTest
@@ -56,14 +64,42 @@ jobs:
           projects: "${{ parameters.rootFolder }}/**/*.csproj"
           arguments: "--configuration ${{ parameters.buildConfiguration }}"
 
-      # on Linux, use Coverlet
-      - task: DotNetCoreCLI@2
-        displayName: "Test"
+
+      - ${{ if eq(parameters.mtp, 'true') }}:
+        - task: DotNetCoreCLI@2
+          displayName: 'Run tests and collect coverage (MTP)'
+          inputs:
+            command: test
+            projects: '**/*Tests/*.csproj'
+            # need Microsoft.Testing.Extensions.TrxReport for Trx
+            # need Microsoft.Testing.Extensions.CodeCoverag for -Coverage
+            arguments: >
+              --configuration ${{ parameters.buildConfiguration }}
+              --no-build
+              --report-trx
+              --coverage
+              --coverage-output-format cobertura
+
+      - ${{ if ne(parameters.mtp, 'true') }}:
+        - task: DotNetCoreCLI@2
+          displayName: 'Run tests and collect coverage (XPlat/VSTest)'
+          inputs:
+            command: test
+            projects: '**/*Tests/*.csproj'
+            arguments: >
+              --configuration ${{ parameters.buildConfiguration }}
+              --no-build
+              --logger trx
+              --collect:"XPlat Code Coverage"
+              --DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+
+      - task: PublishCodeCoverageResults@1
+        displayName: 'Publish Code Coverage'
         inputs:
-          command: "test"
-          projects: "${{ parameters.rootFolder }}/**/*Tests.csproj"
-          arguments: '--configuration Debug --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura'
-          publishTestResults: true
+          codeCoverageTool: 'Cobertura'
+          summaryFileLocation: '$(Agent.TempDirectory)/**/coverage.cobertura.xml'
+          reportDirectory: '$(Agent.TempDirectory)/**/coveragereport'
+          failIfCoverageEmpty: true
 
       - task: PublishCodeCoverageResults@2
         displayName: "Publish code coverage report"

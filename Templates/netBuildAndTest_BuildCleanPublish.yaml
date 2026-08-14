@@ -7,7 +7,7 @@ parameters:
       - "Production"
   - name: artifactName
     type: string
-  - name: rootFolder
+  - name: publishAppFolder
     type: string
   - name: buildConfiguration
     type: string
@@ -29,8 +29,7 @@ steps:
     inputs:
       command: publish
       projects: |
-        ${{ parameters.rootFolder }}/**/*.csproj
-        !${{ parameters.rootFolder }}/**/*Tests.csproj
+        ${{ parameters.publishAppFolder }}/**/*.csproj
       publishWebProjects: false
       publishTestResults: false
       ${{ if eq(parameters.publishSingleFile, 'true') }}:

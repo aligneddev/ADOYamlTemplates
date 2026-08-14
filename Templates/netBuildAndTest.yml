@@ -1,4 +1,4 @@
-# Build .Net Web apps with artifacts for Deploy
+# Build .Net Web apps with artifacts for deployment
 # https://learn.microsoft.com/en-us/azure/devops/pipelines/ecosystems/dotnet-core?view=azure-devops&tabs=yaml-editor
 # these can run on ubuntu-latest
 
@@ -9,9 +9,12 @@ parameters:
   - name: buildConfiguration
     type: string
     default: "Release"
-  # The folder where the main project with Program.cs is located    
   - name: rootFolder
     type: string
+  # The folder of the main/Program.cs project, added later
+  - name: publishAppFolder
+    type: string
+    default: ""
   - name: artifactName
     type: string
   - name: isMain
@@ -26,18 +29,22 @@ parameters:
     values:
       - "true"
       - "false"
+  # build artifacts for the given environments
+  - name: environmentNames
+    type: string
+    default: "POC, TST, REL, PRD"
   # new testing mode is the Microsoft Testing Platform: https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test
   # this is designated in the global.json
   - name: mtp
     type: string
-    default: "true"
+    default: "false"
     values:
       - "true"
       - "false"
 
 jobs:
   - job: BuildAndTest
-    displayName: "Build and Test"
+    displayName: "Build, Test and Publish"
     steps:
       - task: UseDotNet@2
         displayName: "Install .NET SDK"
@@ -45,35 +52,36 @@ jobs:
           version: ${{ parameters.netVersion }}
           performMultiLevelLookup: true
           includePreviewVersions: true
-
+          
       - task: NuGetAuthenticate@1
         displayName: "NuGet Authenticate"
-
+      
       - task: DotNetCoreCLI@2
         displayName: "Restore"
         inputs:
           command: "restore"
-          projects: "${{ parameters.rootFolder }}/**/*.csproj"
+          projects: "${{ parameters.publishAppFolder }}/**/*.csproj"
           feedsToUse: "config"
           # Nuget.config should be at the root of the repo
-          nugetConfigPath: "NuGet.config"
+          nugetConfigPath: 'NuGet.config'
 
       - task: DotNetCoreCLI@2
-        displayName: "Build With ${{ parameters.buildConfiguration }} Configuration"
+        displayName: 'Build With ${{ parameters.buildConfiguration }} Configuration'
         inputs:
           command: build
-          projects: "${{ parameters.rootFolder }}/**/*.csproj"
-          arguments: "--configuration ${{ parameters.buildConfiguration }}"
-
+          projects: '${{ parameters.publishAppFolder }}/**/*.csproj'
+          arguments: '--configuration ${{ parameters.buildConfiguration }}'
 
       - ${{ if eq(parameters.mtp, 'true') }}:
         - task: DotNetCoreCLI@2
           displayName: 'Run tests and collect coverage (MTP)'
           inputs:
             command: test
-            projects: '**/*Tests/*.csproj'
+            projects: '${{ parameters.rootFolder }}/*Tests/*.csproj'
             # need Microsoft.Testing.Extensions.TrxReport for Trx
             # need Microsoft.Testing.Extensions.CodeCoverag for -Coverage
+            # Consider adding --report-gh in GitHub Actions or dotnet test --report-azdo in Azure DevOps. https://devblogs.microsoft.com/dotnet/microsoft-testing-platform-reporting/
+            # a testconfig.json could be helpful in the project and less configuration here
             arguments: >
               --configuration ${{ parameters.buildConfiguration }}
               --report-trx
@@ -98,88 +106,42 @@ jobs:
           summaryFileLocation: '$(Agent.TempDirectory)/**/*.cobertura.xml'
           failIfCoverageEmpty: false
 
-      # /p:EnvironmentName=Development or Staging adds and sets the ASPNETCORE_ENVIRONMENT to the web.config
-      - task: DotNetCoreCLI@2
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        displayName: "Publish Development"
-        inputs:
-          command: publish
-          projects: |
-            ${{ parameters.rootFolder }}/**/*.csproj
-            !${{ parameters.rootFolder }}/**/*Tests.csproj
-          publishWebProjects: false
-          publishTestResults: false
-          ${{ if eq(parameters.publishSingleFile, 'true') }}:
-            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
-          ${{ else }}:
-            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Dev /p:EnvironmentName=Development"
-          zipAfterPublish: false
-          # use false, the output is placed directly in the specified output directory.
-          modifyOutputPath: false
+      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'POC')) }}:
+          - template: netBuildAndTest_BuildCleanPublish.yml
+            parameters:
+              environmentName: 'POC'
+              artifactName: ${{ parameters.artifactName }}
+              publishAppFolder: ${{ parameters.publishAppFolder }}
+              buildConfiguration: ${{ parameters.buildConfiguration }}
+              publishSingleFile: ${{ parameters.publishSingleFile }}
+              removeAppSettings: 'appsettings.Local.json|appsettings.PRD.json|appsettings.REL.json|appsettings.TST.json'
 
-      - task: PowerShell@2
-        displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Dev"
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        inputs:
-          targetType: "inline"
-          script: |
-            $src = "$(Build.ArtifactStagingDirectory)/Dev"
+      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'TST')) }}:
+          - template: netBuildAndTest_BuildCleanPublish.yml
+            parameters:
+              environmentName: 'TST'
+              artifactName: ${{ parameters.artifactName }}
+              publishAppFolder: ${{ parameters.publishAppFolder }}
+              buildConfiguration: ${{ parameters.buildConfiguration }}
+              publishSingleFile: ${{ parameters.publishSingleFile }}
+              removeAppSettings: 'appsettings.Local.json|appsettings.PRD.json|appsettings.REL.json|appsettings.POC.json'
 
-            Write-Host "Cleaning unwanted appsettings from $src"
-            $remove = @('appsettings.Production.json','appsettings.Test.json')
-            foreach ($f in $remove) {
-              Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-            }
+      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'REL')) }}:
+          - template: netBuildAndTest_BuildCleanPublish.yml
+            parameters:
+              environmentName: 'REL'
+              artifactName: ${{ parameters.artifactName }}
+              publishAppFolder: ${{ parameters.publishAppFolder }}
+              buildConfiguration: ${{ parameters.buildConfiguration }}
+              publishSingleFile: ${{ parameters.publishSingleFile }}
+              removeAppSettings: 'appsettings.Local.json|appsettings.PRD.json|appsettings.TST.json|appsettings.POC.json'
 
-            $zipPath = "$(Build.ArtifactStagingDirectory)/Dev/${{parameters.artifactName}}.zip"
-            Write-Host "Creating zip: $zipPath"
-            Compress-Archive -Path $src\* -DestinationPath $zipPath -Force
-
-      - task: DotNetCoreCLI@2
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        displayName: "Publish Production"
-        inputs:
-          command: publish
-          projects: |
-            ${{ parameters.rootFolder }}/**/*.csproj
-            !${{ parameters.rootFolder }}/**/*Tests.csproj
-          publishWebProjects: false
-          publishTestResults: false
-          ${{ if eq(parameters.publishSingleFile, 'true') }}:
-            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production -p:PublishSingleFile=true --self-contained --runtime win-x64 /p:IncludeNativeLibrariesForSelfExtract=true"
-          ${{ else }}:
-            arguments: "--configuration ${{ parameters.buildConfiguration }} --output $(Build.ArtifactStagingDirectory)/Prod /p:EnvironmentName=Production"
-          zipAfterPublish: false
-          modifyOutputPath: false
-
-      - task: PowerShell@2
-        displayName: "Remove unwanted appsettings and create ${{parameters.artifactName}} zip for Prod"
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        inputs:
-          targetType: "inline"
-          script: |
-            $src = "$(Build.ArtifactStagingDirectory)/Prod"
-
-            Write-Host "Cleaning unwanted appsettings from $src"
-            $remove = @('appsettings.Development.json','appsettings.Test.json')
-            foreach ($f in $remove) {
-              Get-ChildItem -Path $src -Filter $f -Recurse -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-            }
-
-            $zipPath = "$(Build.ArtifactStagingDirectory)/Prod/${{parameters.artifactName}}.zip"
-            Write-Host "Creating zip: $zipPath"
-            Compress-Archive -Path $src\* -DestinationPath $zipPath -Force
-
-      - task: PublishBuildArtifacts@1
-        displayName: "DEV - Publish Build Artifacts"
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        inputs:
-          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Dev/${{parameters.artifactName}}.zip"
-          artifactName: "${{ parameters.artifactName }}_Dev"
-
-      - task: PublishBuildArtifacts@1
-        displayName: "PROD - Publish Build Artifacts"
-        condition: and(succeeded(), ${{ eq(parameters.isMain, 'true') }})
-        inputs:
-          PathtoPublish: "$(Build.ArtifactStagingDirectory)/Prod/${{parameters.artifactName}}.zip"
-          artifactName: "${{ parameters.artifactName }}_Prod"
+      - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'PRD')) }}:
+          - template: netBuildAndTest_BuildCleanPublish.yml
+            parameters:
+              environmentName: 'PRD'
+              artifactName: ${{ parameters.artifactName }}
+              publishAppFolder: ${{ parameters.publishAppFolder }}
+              buildConfiguration: ${{ parameters.buildConfiguration }}
+              publishSingleFile: ${{ parameters.publishSingleFile }}
+              removeAppSettings: 'appsettings.Local.json|appsettings.REL.json|appsettings.TST.json|appsettings.POC.json'

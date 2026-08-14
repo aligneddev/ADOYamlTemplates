@@ -32,6 +32,7 @@ stages:
         parameters:
           buildConfiguration: ${{ variables.buildConfiguration }}
           rootFolder: ${{ variables.rootFolder }}
+          publishAppFolder: ${{ variables.rootFolder }}/NetWebExample.Web/
           artifactName: ${{ variables.name }}
           netVersion: "10.x"
           isMain: ${{ variables.isMain }}

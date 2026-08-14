@@ -73,20 +73,37 @@ jobs:
           arguments: '--configuration ${{ parameters.buildConfiguration }}'
 
       - ${{ if eq(parameters.mtp, 'true') }}:
-        - task: DotNetCoreCLI@2
+        # the test .csproj needs Microsoft.Testing.Extensions.TrxReport for Trx
+        # and Microsoft.Testing.Extensions.CodeCoverag for -Coverage
+        # https://devblogs.microsoft.com/dotnet/microsoft-testing-platform-reporting/
+        # https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-test-reports
+        # Add NuGet package: Microsoft.Testing.Extensions.AzureDevOpsReport and Microsoft.Testing.Extensions.HtmlReport
+        - script: |
+            dotnet test \
+              ${{ parameters.rootFolder }}/*Tests/*.csproj \
+              --configuration ${{ parameters.buildConfiguration }} \
+              --verbosity normal \
+              -- \
+              --coverage \
+              --coverage-output "$(Agent.TempDirectory)/coverage.cobertura.xml" \
+              --coverage-output-format cobertura \
+              --report-trx \
+              --report-html \
+              --report-azdo \
+              --publish-azdo-test-results \
+              --report-azdo-upload-artifacts files
           displayName: 'Run tests and collect coverage (MTP)'
+
+        # if a test fails or all pass I want to see the Test tab, --publish-azdo-test-results doesn't seem to run (8/14/26, maybe it will get better)
+        - task: PublishTestResults@2
+          displayName: 'Publish test results (MTP)'
+          condition: succeededOrFailed()
           inputs:
-            command: test
-            projects: '${{ parameters.rootFolder }}/*Tests/*.csproj'
-            # need Microsoft.Testing.Extensions.TrxReport for Trx
-            # need Microsoft.Testing.Extensions.CodeCoverag for -Coverage
-            # Consider adding --report-gh in GitHub Actions or dotnet test --report-azdo in Azure DevOps. https://devblogs.microsoft.com/dotnet/microsoft-testing-platform-reporting/
-            # a testconfig.json could be helpful in the project and less configuration here
-            arguments: >
-              --configuration ${{ parameters.buildConfiguration }}
-              --report-trx
-              --coverage
-              --coverage-output-format cobertura
+            testResultsFormat: VSTest
+            testResultsFiles: '*.trx'
+            searchFolder: '$(System.DefaultWorkingDirectory)/TestResults'
+            failTaskOnFailedTests: false
+            failTaskOnMissingResultsFile: false
 
       - ${{ if ne(parameters.mtp, 'true') }}:
         - task: DotNetCoreCLI@2
@@ -100,11 +117,13 @@ jobs:
               --collect:"XPlat Code Coverage"
               --DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
 
-      - task: PublishCodeCoverageResults@2
-        displayName: 'Publish Code Coverage'
-        inputs:
-          summaryFileLocation: '$(Agent.TempDirectory)/**/*.cobertura.xml'
-          failIfCoverageEmpty: false
+        - task: PublishCodeCoverageResults@2
+          displayName: 'Publish Code Coverage'
+          # comment this out if you don't want to see the Code Coverage tab on any test failures
+          condition: succeededOrFailed()
+          inputs:
+            summaryFileLocation: '$(Agent.TempDirectory)/**/*.cobertura.xml'
+            failIfCoverageEmpty: false
 
       - ${{ if and(eq(parameters.isMain, 'true'), contains(parameters.environmentNames, 'POC')) }}:
           - template: netBuildAndTest_BuildCleanPublish.yml

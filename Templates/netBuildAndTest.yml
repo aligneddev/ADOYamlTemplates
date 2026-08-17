@@ -73,11 +73,10 @@ jobs:
           arguments: '--configuration ${{ parameters.buildConfiguration }}'
 
       - ${{ if eq(parameters.mtp, 'true') }}:
-        # the test .csproj needs Microsoft.Testing.Extensions.TrxReport for Trx
-        # and Microsoft.Testing.Extensions.CodeCoverag for -Coverage
+        # the test .csproj needs the NuGet packages: Microsoft.Testing.Extensions.TrxReport for Trx, Microsoft.Testing.Extensions.CodeCoverage for --coverage
+        # Microsoft.Testing.Extensions.AzureDevOpsReport --report-azdo and Microsoft.Testing.Extensions.HtmlReport --report-html
         # https://devblogs.microsoft.com/dotnet/microsoft-testing-platform-reporting/
         # https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-test-reports
-        # Add NuGet package: Microsoft.Testing.Extensions.AzureDevOpsReport and Microsoft.Testing.Extensions.HtmlReport
         - script: |
             dotnet test \
               ${{ parameters.rootFolder }}/*Tests/*.csproj \
